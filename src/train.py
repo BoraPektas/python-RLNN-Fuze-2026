@@ -1,0 +1,1 @@
+#train.py modelin eğitilmesini sağlayan ve kontrol eden kısımları içerir.
