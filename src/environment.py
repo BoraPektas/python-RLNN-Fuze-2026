@@ -70,12 +70,12 @@ class Missile:
         self.heading = (self.heading + np.pi) % (2 * np.pi) - np.pi
 
         #Thrust Components
-        force_x = thrust*np.cos(self.heading)
-        force_y = thrust*np.sin(self.heading)
+        force_x = self.thrust*np.cos(self.heading)
+        force_y = self.thrust*np.sin(self.heading)
 
         #Drag Force
-        force_x -= drag*(speed**2)*np.cos(self.heading)
-        force_y -= drag*(speed**2)*np.sin(self.heading)
+        force_x -= self.drag*(self.speed**2)*np.cos(self.heading)
+        force_y -= self.drag*(self.speed**2)*np.sin(self.heading)
 
         #Acceleration Components
         acc_x = force_x / self.mass
@@ -85,7 +85,7 @@ class Missile:
         self.vel_x += acc_x * self.dt
         self.vel_y += acc_y * self.dt
 
-        self.speed = np.sqrt(vel_x**2 + vel_y**2)
+        self.speed = np.sqrt(self.vel_x**2 + self.vel_y**2)
 
         # 3. AERODYNAMIC STABILITY (The Anti-Drift Fix)
         # We force the velocity vector to point in the same direction as the nose
