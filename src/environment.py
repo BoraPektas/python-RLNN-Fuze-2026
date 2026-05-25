@@ -104,10 +104,13 @@ class MissileEnv(gym.Env):
     """
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
-    def __init__(self, render_mode=None):
+    def __init__(self, render_mode=None, truncation_mode="advanced"):
         super().__init__()
         self.render_mode = render_mode
         self.dt = 1.0 / 60.0  # Simulation time step
+        
+        # Truncation Mode: "simple" (old: distance > 3000) or "advanced" (new: missile distance from start > initial distance)
+        self.truncation_mode = truncation_mode  # "simple" or "advanced"
 
         # 1. ACTION SPACE (What the AI can do)
         # Example: Continuous control of turning rate (angular velocity)
@@ -122,17 +125,56 @@ class MissileEnv(gym.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         
-        # Randomize starting positions to make the AI robust
-        # e.g., Spawn plane at random coordinates
-        plane_x = np.random.uniform(500, 1000)
-        plane_y = np.random.uniform(500, 1000)
-        plane_heading = np.random.uniform(-np.pi, np.pi)
+        if self.render_mode is None:
+            # ===== EĞİTİM MODU: Kontrollü Rastgele Ortam =====
+            # Füzenin her zaman uçağı yakalaması MÜMKÜN olacak şekilde setup yapılır
+            # "Oransal Seyrüsefer" ilkesine göre:
+            # - Füze hızı > Uçak hızı (300 > 150) ✓
+            # - Başlangıç mesafesi yakın (200-400 birim)
+            # - Relative geometry mantıklı (kaçış imkansız değil ama zor)
+            
+            missile_x = 0.0
+            missile_y = 0.0
+            
+            # Uçak, füzenin etrafında 200-400 birim uzaklıkta rastgele
+            distance = np.random.uniform(200, 400)
+            angle = np.random.uniform(-np.pi, np.pi)
+            plane_x = missile_x + distance * np.cos(angle)
+            plane_y = missile_y + distance * np.sin(angle)
+            
+            # Füze MUTLAKA uçağa doğru bakmalı (180° tolerans ile)
+            # Füze -> Uçak vektörü
+            target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
+            # Füze yönü: Hedef açı ± 45 derece (180° koşulu: ters yöne bakmamalı)
+            missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)  # ±45°
+            missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
+            
+            # Uçak yönü: +/- 90 derece arasında rastgele (kaçış geometrisi)
+            plane_heading = missile_heading + np.random.uniform(-np.pi/2, np.pi/2)
+            plane_heading = (plane_heading + np.pi) % (2 * np.pi) - np.pi
+            
+            missile_max_rotate = 2
+            
+        else:
+            # ===== TEST MODU (render_mode="human"): Tamamen Rastgele Ortam =====
+            # Simülasyonda imkansız durumlar da olabilir, bu normal
+            plane_x = np.random.uniform(500, 1000)
+            plane_y = np.random.uniform(500, 1000)
+            plane_heading = np.random.uniform(-np.pi, np.pi)
+            
+            missile_x = 0.0
+            missile_y = 0.0
+            
+            # Füze uçağa doğru bakmalı (test modunda da)
+            target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
+            missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)
+            missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
+            
+            missile_max_rotate = 2
         
-        # Spawn missile at origin
-        missile_x = 0.0
-        missile_y = 0.0
-        missile_heading = np.random.uniform(-np.pi, np.pi)
-        missile_max_rotate = 2
+        # Store starting positions for miss detection (advanced mode)
+        self.missile_start_x = missile_x
+        self.missile_start_y = missile_y
         
         # Re-instantiate the classes (using your dynamic physics variables)
         self.plane = Plane(plane_x, plane_y, speed=150, heading=plane_heading, mass=500, thrust=200, drag=0.01, dt=self.dt)
@@ -142,6 +184,7 @@ class MissileEnv(gym.Env):
         dist_x = self.plane.x - self.missile.x
         dist_y = self.plane.y - self.missile.y
         self.previous_distance = np.sqrt(dist_x**2 + dist_y**2)
+        self.initial_plane_missile_distance = self.previous_distance  # Store for miss detection
         
         observation = self._get_obs()
         info = {}
@@ -160,7 +203,22 @@ class MissileEnv(gym.Env):
 
         # 3. Check Termination / Truncation
         terminated = bool(distance < 20.0)      # Hit Radius
-        truncated = bool(distance > 3000.0)     # Max Distance
+        
+        # Miss Detection: Calculate missile distance from starting point
+        missile_dist_from_start_x = self.missile.x - self.missile_start_x
+        missile_dist_from_start_y = self.missile.y - self.missile_start_y
+        missile_dist_from_start = np.sqrt(missile_dist_from_start_x**2 + missile_dist_from_start_y**2)
+        
+        # Truncation logic based on mode
+        if self.truncation_mode == "advanced":
+            # ADVANCED: Miss if missile traveled farther from start than initial plane-missile distance
+            # Also keep the simple boundary check
+            miss_condition = missile_dist_from_start > self.initial_plane_missile_distance
+            boundary_condition = distance > 3000.0
+            truncated = bool(miss_condition or boundary_condition)
+        else:  # "simple" mode
+            # SIMPLE: Original truncation - just max distance
+            truncated = bool(distance > 3000.0)
 
         # 4. Centralized Reward Call
         reward = self._compute_reward(distance, terminated, truncated)
@@ -224,7 +282,7 @@ class MissileEnv(gym.Env):
             # Huge bonus for the "Hit"
             reward = 100.0  
         elif truncated:
-            # Penalty for "Lost Target" or "Out of Bounds"
+            # Penalty for "Lost Target", "Miss" or "Out of Bounds"
             reward = -50.0  
         else:
             # 1. SHAPING REWARD: Reward for closing the distance gap
