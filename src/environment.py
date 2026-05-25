@@ -108,6 +108,8 @@ class MissileEnv(gym.Env):
         super().__init__()
         self.render_mode = render_mode
         self.dt = 1.0 / 60.0  # Simulation time step
+        # Simulation time (seconds) - advances each step
+        self.sim_time = 0.0
         
         # Truncation Mode: "simple" (old: distance > 3000) or "advanced" (new: missile distance from start > initial distance)
         self.truncation_mode = truncation_mode  # "simple" or "advanced"
@@ -121,39 +123,87 @@ class MissileEnv(gym.Env):
         # Example: [missile_x, missile_y, missile_angle, plane_x, plane_y, plane_angle]
         # You will likely want to normalize these inputs later or use relative coordinates.
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32)
+        # Plane control: can be set via `set_plane_control` to a number, callable(t)->rotate, or string expression using `t`.
+        self.plane_control_callable = None
+        self._plane_control_code = None
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        # Reset simulation time
+        self.sim_time = 0.0
         
         if self.render_mode is None:
-            # ===== EĞİTİM MODU: Kontrollü Rastgele Ortam =====
-            # Füzenin her zaman uçağı yakalaması MÜMKÜN olacak şekilde setup yapılır
-            # "Oransal Seyrüsefer" ilkesine göre:
-            # - Füze hızı > Uçak hızı (300 > 150) ✓
-            # - Başlangıç mesafesi yakın (200-400 birim)
-            # - Relative geometry mantıklı (kaçış imkansız değil ama zor)
-            
+            # ===== EĞİTİM MODU: Mantıklı Rastgele Ortam =====
+            # Farklı uçak/füze kombinasyonları için fiziksel parametreler
+            # rastgele seçilir. Her örnek, basit bir oransal-seyrüsefer
+            # (proportional guidance) ile test edilir; vuruyorsa kabul edilir.
+
             missile_x = 0.0
             missile_y = 0.0
-            
-            # Uçak, füzenin etrafında 200-400 birim uzaklıkta rastgele
-            distance = np.random.uniform(200, 400)
-            angle = np.random.uniform(-np.pi, np.pi)
-            plane_x = missile_x + distance * np.cos(angle)
-            plane_y = missile_y + distance * np.sin(angle)
-            
-            # Füze MUTLAKA uçağa doğru bakmalı (180° tolerans ile)
-            # Füze -> Uçak vektörü
-            target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
-            # Füze yönü: Hedef açı ± 45 derece (180° koşulu: ters yöne bakmamalı)
-            missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)  # ±45°
-            missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
-            
-            # Uçak yönü: +/- 90 derece arasında rastgele (kaçış geometrisi)
-            plane_heading = missile_heading + np.random.uniform(-np.pi/2, np.pi/2)
-            plane_heading = (plane_heading + np.pi) % (2 * np.pi) - np.pi
-            
-            missile_max_rotate = 2
+
+            max_attempts = 6
+            chosen_params = None
+            feasible = False
+
+            for _ in range(max_attempts):
+                # Geometry: plane at 200-400 units around missile
+                distance = np.random.uniform(200.0, 400.0)
+                angle = np.random.uniform(-np.pi, np.pi)
+                plane_x = missile_x + distance * np.cos(angle)
+                plane_y = missile_y + distance * np.sin(angle)
+
+                # Initial headings with some spread
+                target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
+                missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)
+                missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
+                plane_heading = missile_heading + np.random.uniform(-np.pi/2, np.pi/2)
+                plane_heading = (plane_heading + np.pi) % (2 * np.pi) - np.pi
+
+                # Random physics parameters (reasonable ranges)
+                missile_speed = float(np.random.uniform(250.0, 400.0))
+                missile_mass = float(np.random.uniform(60.0, 200.0))
+                missile_thrust = float(np.random.uniform(300.0, 800.0))
+                missile_drag = float(np.random.uniform(0.002, 0.02))
+                missile_max_rotate = float(np.random.uniform(1.0, 3.0))
+
+                plane_speed = float(np.random.uniform(100.0, 200.0))
+                plane_mass = float(np.random.uniform(300.0, 900.0))
+                plane_thrust = float(np.random.uniform(100.0, 400.0))
+                plane_drag = float(np.random.uniform(0.005, 0.02))
+
+                params = {
+                    "missile": {"speed": missile_speed, "mass": missile_mass, "thrust": missile_thrust, "drag": missile_drag, "max_rotate": missile_max_rotate},
+                    "plane": {"speed": plane_speed, "mass": plane_mass, "thrust": plane_thrust, "drag": plane_drag},
+                    "geometry": {"plane_x": plane_x, "plane_y": plane_y, "missile_x": missile_x, "missile_y": missile_y, "missile_heading": missile_heading, "plane_heading": plane_heading}
+                }
+
+                if self._feasibility_test(params, max_time=20.0):
+                    chosen_params = params
+                    feasible = True
+                    break
+
+            # If none feasible found, keep the last sampled params but mark infeasible
+            if chosen_params is None:
+                chosen_params = params
+                feasible = False
+
+            # Unpack chosen params for instantiation below
+            missile_speed = chosen_params["missile"]["speed"]
+            missile_mass = chosen_params["missile"]["mass"]
+            missile_thrust = chosen_params["missile"]["thrust"]
+            missile_drag = chosen_params["missile"]["drag"]
+            missile_max_rotate = chosen_params["missile"]["max_rotate"]
+
+            plane_speed = chosen_params["plane"]["speed"]
+            plane_mass = chosen_params["plane"]["mass"]
+            plane_thrust = chosen_params["plane"]["thrust"]
+            plane_drag = chosen_params["plane"]["drag"]
+
+            plane_x = chosen_params["geometry"]["plane_x"]
+            plane_y = chosen_params["geometry"]["plane_y"]
+            missile_heading = chosen_params["geometry"]["missile_heading"]
+            plane_heading = chosen_params["geometry"]["plane_heading"]
+            self.feasible = feasible
             
         else:
             # ===== TEST MODU (render_mode="human"): Tamamen Rastgele Ortam =====
@@ -170,15 +220,25 @@ class MissileEnv(gym.Env):
             missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)
             missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
             
-            missile_max_rotate = 2
+            # Test modunda fixed parametreler (basit test için)
+            missile_speed = 300.0
+            missile_mass = 100.0
+            missile_thrust = 500.0
+            missile_drag = 0.005
+            missile_max_rotate = 2.0
+            
+            plane_speed = 150.0
+            plane_mass = 500.0
+            plane_thrust = 200.0
+            plane_drag = 0.01
         
         # Store starting positions for miss detection (advanced mode)
         self.missile_start_x = missile_x
         self.missile_start_y = missile_y
         
         # Re-instantiate the classes (using your dynamic physics variables)
-        self.plane = Plane(plane_x, plane_y, speed=150, heading=plane_heading, mass=500, thrust=200, drag=0.01, dt=self.dt)
-        self.missile = Missile(missile_x, missile_y, speed=300, heading=missile_heading, mass=100, thrust=500, drag=0.005,max_rotate=missile_max_rotate, dt=self.dt)
+        self.plane = Plane(plane_x, plane_y, speed=plane_speed, heading=plane_heading, mass=plane_mass, thrust=plane_thrust, drag=plane_drag, dt=self.dt)
+        self.missile = Missile(missile_x, missile_y, speed=missile_speed, heading=missile_heading, mass=missile_mass, thrust=missile_thrust, drag=missile_drag, max_rotate=missile_max_rotate, dt=self.dt)
         
         # Initialize the distance tracker for the reward function
         dist_x = self.plane.x - self.missile.x
@@ -189,12 +249,135 @@ class MissileEnv(gym.Env):
         observation = self._get_obs()
         info = {}
         
+        # If user passed a plane_control in options, set it now (supports numeric, callable, or string)
+        if options and isinstance(options, dict) and "plane_control" in options:
+            self.set_plane_control(options["plane_control"])
+
+        info["feasible"] = getattr(self, "feasible", False)
+        info["params"] = chosen_params
+
         return observation, info
+
+    def set_plane_control(self, control):
+        """
+        Set the plane control. `control` can be:
+        - None: disable control (defaults used)
+        - number: constant rotation rate (radians/sec)
+        - callable: function f(t)->rotate (radians/sec)
+        - string: expression evaluated with `t` in seconds and `np` available, e.g. "0.2", "np.sin(t)", "0.5*np.sin(t)"
+        """
+        if control is None:
+            self.plane_control_callable = None
+            self._plane_control_code = None
+            return
+
+        if callable(control):
+            self.plane_control_callable = control
+            self._plane_control_code = None
+            return
+
+        # Numeric literal
+        if isinstance(control, (int, float, np.integer, np.floating)):
+            val = float(control)
+            self.plane_control_callable = lambda t, v=val: v
+            self._plane_control_code = None
+            return
+
+        # String expression: compile once
+        if isinstance(control, str):
+            try:
+                code = compile(control, '<plane_control>', 'eval')
+                self._plane_control_code = code
+                self.plane_control_callable = None
+                return
+            except Exception as e:
+                raise ValueError(f"Invalid plane_control expression: {e}")
+
+        raise TypeError("plane_control must be None, number, callable, or string expression")
+
+    def _feasibility_test(self, params, max_time=20.0):
+        """
+        Run a short simulation using a simple proportional guidance controller
+        to check whether the randomly-generated missile can intercept the plane.
+        Returns True if hit occurs within max_time, else False.
+        """
+        try:
+            dt = self.dt
+            missile_p = params["missile"]
+            plane_p = params["plane"]
+            geo = params["geometry"]
+
+            missile = Missile(geo["missile_x"], geo["missile_y"], speed=missile_p["speed"], heading=geo["missile_heading"], mass=missile_p["mass"], thrust=missile_p["thrust"], drag=missile_p["drag"], max_rotate=missile_p["max_rotate"], dt=dt)
+            plane = Plane(geo["plane_x"], geo["plane_y"], speed=plane_p["speed"], heading=geo["plane_heading"], mass=plane_p["mass"], thrust=plane_p["thrust"], drag=plane_p["drag"], dt=dt)
+
+            dist_x = plane.x - missile.x
+            dist_y = plane.y - missile.y
+            previous_distance = np.sqrt(dist_x**2 + dist_y**2)
+            initial_plane_missile_distance = previous_distance
+            missile_start_x = missile.x
+            missile_start_y = missile.y
+
+            steps = int(max_time / dt)
+            for _ in range(steps):
+                # Simple proportional heading controller: aim towards target
+                dx = plane.x - missile.x
+                dy = plane.y - missile.y
+                target_angle = np.arctan2(dy, dx)
+                angle_error = (target_angle - missile.heading + np.pi) % (2 * np.pi) - np.pi
+
+                # Gain chosen empirically for feasibility check
+                K = 2.0
+                desired_turn_rate = angle_error * K
+                # Clip to missile's physical capability
+                desired_turn_rate = np.clip(desired_turn_rate, -missile.max_rotate, missile.max_rotate)
+                action = np.array([desired_turn_rate / missile.max_rotate], dtype=np.float32)
+
+                missile.update(action)
+                # For feasibility check assume plane continues straight (no evasive maneuver)
+                plane.update(rotate=0.0)
+
+                distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
+                if distance < 20.0:
+                    return True
+
+                missile_dist_from_start = np.hypot(missile.x - missile_start_x, missile.y - missile_start_y)
+                if missile_dist_from_start > initial_plane_missile_distance:
+                    return False
+                if distance > 3000.0:
+                    return False
+
+            return False
+        except Exception:
+            # On any error, mark as infeasible (conservative approach)
+            return False
 
     def step(self, action):
         # 1. Update Physics
         self.missile.update(action)
-        self.plane.update(rotate=0.2)
+        # Determine plane rotate command from configured controller
+        rotate = 0.2
+        try:
+            if self.plane_control_callable is not None:
+                rotate = float(self.plane_control_callable(self.sim_time))
+            elif self._plane_control_code is not None:
+                # Safe eval environment: expose numpy and common trig helpers, and the current time `t`
+                safe_globals = {
+                    "__builtins__": None,
+                    "np": np,
+                    "sin": np.sin,
+                    "cos": np.cos,
+                    "tan": np.tan,
+                    "pi": np.pi,
+                    "t": self.sim_time,
+                }
+                rotate = float(eval(self._plane_control_code, safe_globals, {}))
+        except Exception:
+            # On any controller error, fall back to a small default rotation
+            rotate = 0.2
+
+        # Apply rotation to plane and advance sim time
+        self.plane.update(rotate=rotate)
+        self.sim_time += self.dt
 
         # 2. Calculate Distance
         dist_x = self.plane.x - self.missile.x
