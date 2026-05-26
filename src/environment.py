@@ -104,14 +104,15 @@ class MissileEnv(gym.Env):
     """
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
-    def __init__(self, render_mode=None, truncation_mode="advanced"):
+    def __init__(self, render_mode=None, truncation_mode="simple"):
         super().__init__()
         self.render_mode = render_mode
         self.dt = 1.0 / 60.0  # Simulation time step
         # Simulation time (seconds) - advances each step
         self.sim_time = 0.0
         
-        # Truncation Mode: "simple" (old: distance > 3000) or "advanced" (new: missile distance from start > initial distance)
+        # Truncation Mode: "simple" only uses distance > 3000.0.
+        # "advanced" adds a start-distance runaway cutoff as a learning heuristic.
         self.truncation_mode = truncation_mode  # "simple" or "advanced"
 
         # 1. ACTION SPACE (What the AI can do)

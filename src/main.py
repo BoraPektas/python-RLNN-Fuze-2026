@@ -145,13 +145,29 @@ def main():
                     missile_y = [p[1] for p in episode["missile"]]
                     plane_x = [p[0] for p in episode["plane"]]
                     plane_y = [p[1] for p in episode["plane"]]
-                    alpha = 1.0 if episode["event"] == "hit" else 0.4
-                    plt.plot(plane_x, plane_y, color="orange", linestyle="--", alpha=alpha, linewidth=1)
-                    plt.plot(missile_x, missile_y, color="blue", alpha=alpha, linewidth=1)
+                    if episode["event"] == "hit":
+                        plane_color = "orange"
+                        missile_color = "blue"
+                        plane_alpha = 0.8
+                        missile_alpha = 1.0
+                        plane_width = 1.0
+                        missile_width = 1.5
+                        missile_style = "-"
+                    else:
+                        plane_color = "darkorange"
+                        missile_color = "red"
+                        plane_alpha = 0.7
+                        missile_alpha = 1.0
+                        plane_width = 1.5
+                        missile_width = 2.0
+                        missile_style = "--"
+
+                    plt.plot(plane_x, plane_y, color=plane_color, linestyle="--", alpha=plane_alpha, linewidth=plane_width)
+                    plt.plot(missile_x, missile_y, color=missile_color, alpha=missile_alpha, linewidth=missile_width, linestyle=missile_style)
                     if episode["event"] in {"hit", "miss"}:
                         marker_color = "green" if episode["event"] == "hit" else "red"
-                        plt.scatter(missile_x[-1], missile_y[-1], c=marker_color, s=50, marker="x")
-                        plt.scatter(plane_x[-1], plane_y[-1], c=marker_color, s=30, marker="o")
+                        plt.scatter(missile_x[-1], missile_y[-1], c=marker_color, s=60, marker="x")
+                        plt.scatter(plane_x[-1], plane_y[-1], c=marker_color, s=40, marker="o")
 
                 success_rate = 0.0
                 if hits + misses > 0:
