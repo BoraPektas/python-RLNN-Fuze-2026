@@ -470,15 +470,25 @@ class MissileEnv(gym.Env):
         heading_sin = np.sin(heading_error)
         speed_delta = self.plane.speed - self.missile.speed
 
+        # Normalize observation values so learning is easier across wide distance/speed ranges.
+        max_distance = 3500.0
+        max_rel_speed = 400.0
+
+        local_x = np.clip(local_x / max_distance, -1.0, 1.0)
+        local_y = np.clip(local_y / max_distance, -1.0, 1.0)
+        local_dv_x = np.clip(local_dv_x / max_rel_speed, -1.0, 1.0)
+        local_dv_y = np.clip(local_dv_y / max_rel_speed, -1.0, 1.0)
+        speed_delta = np.clip(speed_delta / max_rel_speed, -1.0, 1.0)
+
         # 7. Package it into a numpy array (Float32 for PyTorch compatibility)
         obs = np.array([
-            local_x,          # Distance forward/backward
-            local_y,          # Distance left/right
-            local_dv_x,       # Closing speed forward/backward
-            local_dv_y,       # Closing speed left/right
+            local_x,          # Distance forward/backward (normalized)
+            local_y,          # Distance left/right (normalized)
+            local_dv_x,       # Closing speed forward/backward (normalized)
+            local_dv_y,       # Closing speed left/right (normalized)
             heading_cos,      # Heading alignment cosine
             heading_sin,      # Heading alignment sine
-            speed_delta       # Relative speed advantage
+            speed_delta       # Relative speed advantage (normalized)
         ], dtype=np.float32)
         
         return obs
@@ -491,19 +501,20 @@ class MissileEnv(gym.Env):
             return -150.0
 
         progress = self.previous_distance - distance
+        progress = np.clip(progress, -50.0, 50.0)
         
         # Kaçış cezası: eğer füze uzaklaşıyorsa ağır ceza
         escape_penalty = 0.0
         if progress < 0:
             escape_penalty = -0.8 * abs(progress)
         
-        dist_penalty = 0.0015 * distance
+        dist_penalty = 0.0018 * distance
 
         dx = self.plane.x - self.missile.x
         dy = self.plane.y - self.missile.y
         target_angle = np.arctan2(dy, dx)
         heading_error = (target_angle - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
-        heading_bonus = 0.15 * np.cos(heading_error)
+        heading_bonus = 0.25 * np.cos(heading_error)
 
-        reward = 0.5 * progress - dist_penalty + heading_bonus + escape_penalty - 0.01
+        reward = 0.8 * progress - dist_penalty + heading_bonus + escape_penalty - 0.01
         return float(reward)
