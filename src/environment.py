@@ -145,8 +145,8 @@ class MissileEnv(gym.Env):
             feasible = False
 
             for _ in range(max_attempts):
-                # Geometry: plane at 180-350 units around missile (easier for training)
-                distance = np.random.uniform(180.0, 350.0)
+                # Geometry: plane at 1800-3500 units around missile (easier for training)
+                distance = np.random.uniform(1800.0, 3500.0)
                 angle = np.random.uniform(-np.pi, np.pi)
                 plane_x = missile_x + distance * np.cos(angle)
                 plane_y = missile_y + distance * np.sin(angle)
@@ -207,7 +207,7 @@ class MissileEnv(gym.Env):
         else:
             # ===== TEST MODU (render_mode="human"): Yine zorlu ama daha gerçekçi bir başlangıç mesafesi
             # Uçakların füzeye daha yakın olduğu testler, eğitimle daha uyumlu sonuç verir.
-            distance = np.random.uniform(180.0, 320.0)
+            distance = np.random.uniform(1800.0, 3200.0)
             angle = np.random.uniform(-np.pi, np.pi)
             plane_x = distance * np.cos(angle)
             plane_y = distance * np.sin(angle)
@@ -228,7 +228,7 @@ class MissileEnv(gym.Env):
             missile_drag = 0.003
             missile_max_rotate = 4.0
             
-            plane_speed = 110.0
+            plane_speed = 250.0
             plane_mass = 450.0
             plane_thrust = 150.0
             plane_drag = 0.015
@@ -341,7 +341,7 @@ class MissileEnv(gym.Env):
 
                 missile.update(action)
                 # For feasibility check use the same default steering profile as the main env
-                plane.update(rotate=0.1)
+                plane.update(rotate=0.0)
 
                 distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
                 if distance < 20.0:
@@ -369,7 +369,7 @@ class MissileEnv(gym.Env):
         self.missile.update(action)
 
         # Determine plane rotate command from configured controller
-        rotate = 0.1
+        rotate = 0.0
         try:
             if self.plane_control_callable is not None:
                 rotate = float(self.plane_control_callable(self.sim_time))
@@ -386,8 +386,8 @@ class MissileEnv(gym.Env):
                 }
                 rotate = float(eval(self._plane_control_code, safe_globals, {}))
         except Exception:
-            # On any controller error, fall back to a small default rotation
-            rotate = 0.1
+            # On any controller error, fall back to no automatic rotation
+            rotate = 0.0
 
         # Apply rotation to plane and advance sim time
         self.plane.update(rotate=rotate)
@@ -505,10 +505,5 @@ class MissileEnv(gym.Env):
         heading_error = (target_angle - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
         heading_bonus = 0.15 * np.cos(heading_error)
 
-        # Sınır cezası
-        boundary_penalty = 0.0
-        if distance > 900:
-            boundary_penalty = -0.5
-
-        reward = 0.5 * progress - dist_penalty + heading_bonus + escape_penalty + boundary_penalty - 0.01
+        reward = 0.5 * progress - dist_penalty + heading_bonus + escape_penalty - 0.01
         return float(reward)
