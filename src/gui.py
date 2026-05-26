@@ -4,6 +4,8 @@ import sys
 import pyperclip
 import webbrowser
 import math
+import tkinter as tk
+from tkinter import filedialog
 
 pygame.init()
 
@@ -116,50 +118,6 @@ def about_screen():
         pygame.display.update()
 
 
-# ─── İSİM SORMA (inline, sağ panelde) ────────────────────────────────────────
-def ask_name_inline(prompt_text):
-    """
-    Ekranın sağ paneli üzerinde küçük bir isim girişi.
-    Enter → isim, ESC / boş → None
-    """
-    input_text = ""
-    clock = pygame.time.Clock()
-    bx, by, bw, bh = 755, 320, 240, 110
-    box  = pygame.Rect(bx, by, bw, bh)
-    field= pygame.Rect(bx+10, by+65, bw-20, 30)
-
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit(); sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
-                    return input_text.strip() if input_text.strip() else None
-                elif event.key == pygame.K_ESCAPE:
-                    return None
-                elif event.key == pygame.K_BACKSPACE:
-                    input_text = input_text[:-1]
-                else:
-                    if len(input_text) < 20 and event.unicode.isprintable():
-                        input_text += event.unicode
-
-        pygame.draw.rect(screen, (35,35,35),  box, border_radius=6)
-        pygame.draw.rect(screen, (100,100,255), box, 2, border_radius=6)
-
-        p_surf = small_font.render(prompt_text, True, (220,220,220))
-        screen.blit(p_surf, (bx+10, by+10))
-        h_surf = small_font.render("Enter:ok  ESC:iptal", True, (120,120,120))
-        screen.blit(h_surf, (bx+10, by+38))
-
-        pygame.draw.rect(screen, (255,255,255), field, border_radius=3)
-        pygame.draw.rect(screen, (80,150,255),  field, 2, border_radius=3)
-        v_surf = small_font.render(input_text+"|", True, (10,10,10))
-        screen.blit(v_surf, (field.x+5, field.y+5))
-
-        pygame.display.update()
-        clock.tick(60)
-
-
 # ─── SIMULATE ─────────────────────────────────────────────────────────────────
 def simulate_screen():
     running = True
@@ -175,20 +133,41 @@ def simulate_screen():
     last_mouse_pos = pygame.mouse.get_pos()
     active_edit    = None   # {'ent','field','text'}   field: 'x_real'|'y_real'|'angle'|('extra',idx)
 
-    PANEL_X    = 750
-    PANEL_W    = 250
+    # ── Panel ayarları ──────────────────────────────────────────────
+    PANEL_W    = 300
+    PANEL_X    = 1000 - PANEL_W   # = 700
     PANEL_H    = 750
     PANEL_RECT = pygame.Rect(PANEL_X, 0, PANEL_W, PANEL_H)
 
-    ICON_AREA_H = 430
+    # MODEL SEÇ butonu üstte → ikon alanı biraz uzadı
+    ICON_AREA_H = 255   # model butonu + ikonlar + etiketler
     ESC_AREA_H  = 40
     HUD_TOP     = ICON_AREA_H
     HUD_BOT     = PANEL_H - ESC_AREA_H
     HUD_H       = HUD_BOT - HUD_TOP
 
-    plane_icon         = pygame.Rect(PANEL_X+95, 100, 60, 60)
-    missile_icon_rect   = pygame.Rect(PANEL_X+95, 230, 60, 60)
-    missile_icon_center = (PANEL_X+125, 260)
+    # Model path
+    model_path = None   # seçilen .pt/.pth vb. dosya yolu
+
+    # ── MODEL SEÇ butonu (üst kısım) ────────────────────────────────
+    btn_model = pygame.Rect(PANEL_X + 10, 8, PANEL_W - 20, 28)
+
+    # ── İkonlar yan yana ────────────────────────────────────────────
+    ICON_SIZE = 60
+    half_w    = PANEL_W // 2   # 150
+
+    # Plane: sol yarı ortası — y biraz aşağı kaydı (model butonuna yer açıldı)
+    plane_cx   = PANEL_X + half_w // 2
+    plane_cy   = 130
+    plane_icon = pygame.Rect(plane_cx - ICON_SIZE//2, plane_cy - ICON_SIZE//2,
+                             ICON_SIZE, ICON_SIZE)
+
+    # Missile: sağ yarı ortası
+    missile_cx = PANEL_X + half_w + half_w // 2
+    missile_cy = 130
+    missile_icon_rect   = pygame.Rect(missile_cx - ICON_SIZE//2, missile_cy - ICON_SIZE//2,
+                                      ICON_SIZE, ICON_SIZE)
+    missile_icon_center = (missile_cx, missile_cy)
 
     hud_scroll    = 0
     hud_content_h = 0
@@ -198,7 +177,6 @@ def simulate_screen():
 
     # Tıklanabilir öğeler listesi (her frame doldurulur)
     hud_clickables = []   # (screen_rect, ent_type, field_key, cur_val)
-    plus_buttons   = []   # (screen_rect, ent_type) veya (screen_rect, ent_type, 'delete', idx)
 
     def draw_rotated_entity(surface, et, cx, cy, size, angle):
         half = size/2
@@ -215,7 +193,7 @@ def simulate_screen():
     def drag_world_pos(mpos):
         return (mpos[0]-camera_x)/zoom, (mpos[1]-camera_y)/zoom
 
-    ROW_H   = 26
+    ROW_H   = 28
     FIELD_W = PANEL_W - 16
 
     while running:
@@ -242,9 +220,9 @@ def simulate_screen():
         # ── NESNELER ──────────────────────────────────────────────────
         size=60*zoom
         for et,data in entities.items():
-            if et == dragging_type: 
-                continue # DÜZELTME 1: Sürüklenen nesnenin haritada iz bırakmaması
-                
+            if et == dragging_type:
+                continue
+
             sx=data['x']*zoom+camera_x; sy=data['y']*zoom+camera_y
             if sx-size/2>PANEL_X: continue
             draw_rotated_entity(screen,et,sx,sy,size,data['angle'])
@@ -253,24 +231,56 @@ def simulate_screen():
         pygame.draw.rect(screen, PANEL_COLOR, PANEL_RECT)
         pygame.draw.line(screen,(0,0,0),(PANEL_X,0),(PANEL_X,PANEL_H),3)
 
-        draw_text("ENTITIES",small_font,WHITE,screen,PANEL_X+125,50)
-        pygame.draw.rect(screen,(0,180,255),plane_icon)
-        draw_text("PLANE",small_font,WHITE,screen,PANEL_X+125,180)
-        tri=[(missile_icon_center[0],missile_icon_center[1]-30),
-             (missile_icon_center[0]-30,missile_icon_center[1]+30),
-             (missile_icon_center[0]+30,missile_icon_center[1]+30)]
-        pygame.draw.polygon(screen,(220,20,20),tri)
-        draw_text("MISSILE",small_font,WHITE,screen,PANEL_X+125,310)
+        # ── MODEL SEÇ butonu ──────────────────────────────────────────
+        mp_hover = btn_model.collidepoint(mouse_pos)
+        btn_bg   = (80,130,80)  if mp_hover else (55,90,55)
+        btn_bc   = (120,200,120) if mp_hover else (80,140,80)
+        pygame.draw.rect(screen, btn_bg, btn_model, border_radius=4)
+        pygame.draw.rect(screen, btn_bc, btn_model, 1, border_radius=4)
+        if model_path:
+            import os
+            short = os.path.basename(model_path)
+            if len(short) > 22: short = short[:19] + "..."
+            btn_label = f"✓ {short}"
+            lbl_color = (180,255,180)
+        else:
+            btn_label = "▶  SELECT MODEL"
+            lbl_color = (200,255,200)
+        lbl_surf = small_font.render(btn_label, True, lbl_color)
+        lbl_rect = lbl_surf.get_rect(center=btn_model.center)
+        screen.blit(lbl_surf, lbl_rect)
+        if mp_hover:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+
+        # ── ENTITIES başlığı (ikon bloğunun hemen üstü) ───────────────
+        draw_text("ENTITIES", small_font, (180,180,180), screen,
+                  PANEL_X + PANEL_W//2, plane_cy - ICON_SIZE//2 - 18)
+
+        # Ayırıcı çizgi (sol/sağ yarı arası, sadece ikon bloğu seviyesinde)
+        mid_x = PANEL_X + half_w
+        pygame.draw.line(screen, (80,80,80),
+                         (mid_x, plane_cy - ICON_SIZE//2 - 6),
+                         (mid_x, plane_cy + ICON_SIZE//2 + 22), 1)
+
+        # Plane ikonu (mavi kare)
+        pygame.draw.rect(screen, (0,180,255), plane_icon)
+        draw_text("PLANE", small_font, WHITE, screen, plane_cx, plane_cy + 48)
+
+        # Missile ikonu (kırmızı üçgen)
+        tri = [(missile_icon_center[0],   missile_icon_center[1]-30),
+               (missile_icon_center[0]-30, missile_icon_center[1]+30),
+               (missile_icon_center[0]+30, missile_icon_center[1]+30)]
+        pygame.draw.polygon(screen, (220,20,20), tri)
+        draw_text("MISSILE", small_font, WHITE, screen, missile_cx, missile_cy + 48)
 
         # ── HUD YÜZEYİ ────────────────────────────────────────────────
         hud_surface.fill(PANEL_COLOR)
         hud_clickables.clear()
-        plus_buttons.clear()
 
-        # Sürüklenen entity entities'ten silinmiyor; sadece gösterim için x,y,angle override
+        # Sürüklenen entity'nin display kopyası
         display_entities = {}
         for k,v in entities.items():
-            display_entities[k] = dict(v)   # shallow copy
+            display_entities[k] = dict(v)
         if dragging_type and dragging_type in display_entities:
             dx_w,dy_w=drag_world_pos(mouse_pos)
             display_entities[dragging_type]['x']     = dx_w
@@ -289,7 +299,7 @@ def simulate_screen():
             # ── Başlık ──
             hdr = small_font.render(f"── {name} ──", True, (200,200,200))
             hud_surface.blit(hdr, (8, cy_surf))
-            cy_surf += 22
+            cy_surf += 24
 
             # ── Sabit alanlar ──
             fixed_fields = [
@@ -307,7 +317,7 @@ def simulate_screen():
                     pygame.draw.rect(hud_surface,(255,255,255),surf_rect,border_radius=3)
                     pygame.draw.rect(hud_surface,(0,120,255),  surf_rect,2,border_radius=3)
                     es=small_font.render(active_edit['text']+"|",True,(0,0,200))
-                    hud_surface.blit(es,(surf_rect.x+6,surf_rect.y+3))
+                    hud_surface.blit(es,(surf_rect.x+6,surf_rect.y+5))
                 else:
                     hover=(screen_rect.collidepoint(mouse_pos) and dragging_type is None
                            and HUD_TOP<=mouse_pos[1]<=HUD_BOT)
@@ -316,45 +326,30 @@ def simulate_screen():
                     pygame.draw.rect(hud_surface,bg,surf_rect,border_radius=3)
                     pygame.draw.rect(hud_surface,bc,surf_rect,1,border_radius=3)
                     ts=small_font.render(label,True,(230,230,230))
-                    hud_surface.blit(ts,(surf_rect.x+6,surf_rect.y+3))
+                    hud_surface.blit(ts,(surf_rect.x+6,surf_rect.y+5))
                     if hover: pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_IBEAM)
 
                 hud_clickables.append((screen_rect, et, fkey, val))
                 cy_surf += ROW_H
 
-            # ── Ekstra alanlar ──
+            # ── Ekstra alanlar (sadece görüntüleme + düzenleme, ekleme/silme yok) ──
             for idx, ex in enumerate(extra):
-                fkey = ('extra', idx)
+                fkey  = ('extra', idx)
                 label = f"{ex['name']}: {ex['value']}"
                 val   = ex['value']
 
-                DEL_W = 22   # × butonunun genişliği
                 is_active=(active_edit and active_edit['ent']==et
                            and active_edit['field']==fkey)
 
-                # Ana alan (× butonu için sağdan yer bırak)
-                screen_rect=pygame.Rect(PANEL_X+8, HUD_TOP+cy_surf-hud_scroll, FIELD_W-DEL_W-2, ROW_H-2)
-                surf_rect  =pygame.Rect(8, cy_surf, FIELD_W-DEL_W-2, ROW_H-2)
-
-                # × butonu (sağ kenarda)
-                del_surf_rect  = pygame.Rect(8+FIELD_W-DEL_W, cy_surf, DEL_W, ROW_H-2)
-                del_screen_rect= pygame.Rect(PANEL_X+8+FIELD_W-DEL_W, HUD_TOP+cy_surf-hud_scroll, DEL_W, ROW_H-2)
-                del_hover = (del_screen_rect.collidepoint(mouse_pos) and dragging_type is None
-                             and HUD_TOP<=mouse_pos[1]<=HUD_BOT)
-                del_bg = (200,60,60) if del_hover else (140,40,40)
-                pygame.draw.rect(hud_surface, del_bg, del_surf_rect, border_radius=3)
-                x_lbl = small_font.render("×", True, (255,200,200))
-                hud_surface.blit(x_lbl, (del_surf_rect.centerx - x_lbl.get_width()//2,
-                                         del_surf_rect.centery - x_lbl.get_height()//2))
-                if del_hover:
-                    pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+                screen_rect=pygame.Rect(PANEL_X+8, HUD_TOP+cy_surf-hud_scroll, FIELD_W, ROW_H-2)
+                surf_rect  =pygame.Rect(8, cy_surf, FIELD_W, ROW_H-2)
 
                 if is_active:
                     pygame.draw.rect(hud_surface,(255,255,255),surf_rect,border_radius=3)
                     pygame.draw.rect(hud_surface,(0,120,255),  surf_rect,2,border_radius=3)
                     disp = f"{ex['name']}: {active_edit['text']}|"
                     es=small_font.render(disp,True,(0,0,200))
-                    hud_surface.blit(es,(surf_rect.x+6,surf_rect.y+3))
+                    hud_surface.blit(es,(surf_rect.x+6,surf_rect.y+5))
                 else:
                     hover=(screen_rect.collidepoint(mouse_pos) and dragging_type is None
                            and HUD_TOP<=mouse_pos[1]<=HUD_BOT)
@@ -363,30 +358,13 @@ def simulate_screen():
                     pygame.draw.rect(hud_surface,bg,surf_rect,border_radius=3)
                     pygame.draw.rect(hud_surface,bc,surf_rect,1,border_radius=3)
                     ts=small_font.render(label,True,(230,230,230))
-                    hud_surface.blit(ts,(surf_rect.x+6,surf_rect.y+3))
+                    hud_surface.blit(ts,(surf_rect.x+6,surf_rect.y+5))
                     if hover: pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_IBEAM)
 
                 hud_clickables.append((screen_rect, et, fkey, val))
-                # Silme butonu ayrı listeye
-                plus_buttons.append((del_screen_rect, et, 'delete', idx))
                 cy_surf += ROW_H
 
-            # ── + Butonu ──
-            plus_surf_rect  = pygame.Rect(8, cy_surf, FIELD_W, ROW_H-2)
-            plus_screen_rect= pygame.Rect(PANEL_X+8, HUD_TOP+cy_surf-hud_scroll, FIELD_W, ROW_H-2)
-            plus_hover = (plus_screen_rect.collidepoint(mouse_pos) and dragging_type is None
-                          and HUD_TOP<=mouse_pos[1]<=HUD_BOT)
-            plus_bg = (80,160,80) if plus_hover else (55,100,55)
-            plus_bc = (120,220,120) if plus_hover else (80,140,80)
-            pygame.draw.rect(hud_surface, plus_bg, plus_surf_rect, border_radius=3)
-            pygame.draw.rect(hud_surface, plus_bc, plus_surf_rect, 1, border_radius=3)
-            plus_label = small_font.render(f"+ Add field to {name}", True, (200,255,200))
-            hud_surface.blit(plus_label, (plus_surf_rect.x+6, plus_surf_rect.y+3))
-            if plus_hover:
-                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
-
-            plus_buttons.append((plus_screen_rect, et))
-            cy_surf += ROW_H + 10  # entity arası boşluk
+            cy_surf += 10  # entity arası boşluk
 
         hud_content_h = cy_surf
         MAX_SCROLL    = max(0, hud_content_h - HUD_H)
@@ -401,10 +379,10 @@ def simulate_screen():
         if MAX_SCROLL > 0:
             sb_h  = max(20, int(HUD_H * HUD_H / hud_content_h))
             sb_y  = HUD_TOP + int(hud_scroll/MAX_SCROLL*(HUD_H-sb_h))
-            pygame.draw.rect(screen,(130,130,130),pygame.Rect(998-6,sb_y,6,sb_h),border_radius=3)
+            pygame.draw.rect(screen,(130,130,130),pygame.Rect(1000-6,sb_y,6,sb_h),border_radius=3)
 
         # ESC etiketi
-        draw_text("BACK (ESC)",small_font,(150,150,150),screen,PANEL_X+125,PANEL_H-20)
+        draw_text("BACK (ESC)",small_font,(150,150,150),screen,PANEL_X+PANEL_W//2,PANEL_H-20)
 
         # Sürüklenen nesne
         if dragging_type:
@@ -412,8 +390,11 @@ def simulate_screen():
 
         # İmleç sıfırlama
         on_interactive = (
-            any(r.collidepoint(mouse_pos) and HUD_TOP<=mouse_pos[1]<=HUD_BOT for r,*_ in hud_clickables) or
-            any(r.collidepoint(mouse_pos) and HUD_TOP<=mouse_pos[1]<=HUD_BOT for r,*_ in plus_buttons)
+            btn_model.collidepoint(mouse_pos) or
+            any(
+                r.collidepoint(mouse_pos) and HUD_TOP<=mouse_pos[1]<=HUD_BOT
+                for r,*_ in hud_clickables
+            )
         )
         if not on_interactive:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
@@ -447,58 +428,45 @@ def simulate_screen():
                         _apply_edit(entities, active_edit)
                         active_edit = None
 
-                    # + ve x butonlari
-                    clicked_plus = False
-                    for btn_data in plus_buttons:
-                        prect = btn_data[0]
-                        if not (prect.collidepoint(event.pos) and HUD_TOP<=event.pos[1]<=HUD_BOT):
-                            continue
-                        clicked_plus = True
-                        if len(btn_data) == 2:
-                            pet = btn_data[1]
-                            new_name = ask_name_inline("Yeni alan adi:")
-                            if new_name:
-                                if pet not in entities:
-                                    entities[pet]={'x':0,'y':0,'angle':0,'extra':[]}
-                                if 'extra' not in entities[pet]:
-                                    entities[pet]['extra']=[]
-                                entities[pet]['extra'].append({'name':new_name,'value':0.0})
-                                hud_scroll = MAX_SCROLL + 999
-                        elif len(btn_data) == 4 and btn_data[2] == 'delete':
-                            pet = btn_data[1]; idx = btn_data[3]
-                            if pet in entities and 'extra' in entities[pet]:
-                                if (active_edit and active_edit['ent']==pet
-                                        and isinstance(active_edit['field'],tuple)
-                                        and active_edit['field']==('extra',idx)):
-                                    active_edit = None
-                                del entities[pet]['extra'][idx]
-                        break
+                    # MODEL SEÇ butonu
+                    if btn_model.collidepoint(event.pos):
+                        root = tk.Tk()
+                        root.withdraw()
+                        root.attributes('-topmost', True)
+                        selected = filedialog.askopenfilename(
+                            title="Model Dosyası Seç",
+                            filetypes=[
+                                ("Model dosyaları", "*.pt *.pth *.onnx *.h5 *.pkl *.bin"),
+                                ("Tüm dosyalar", "*.*")
+                            ]
+                        )
+                        root.destroy()
+                        if selected:
+                            model_path = selected
+                        continue
 
-                    if not clicked_plus:
-                        # HUD field tıklama
-                        clicked_hud = False
-                        if dragging_type is None and HUD_TOP<=event.pos[1]<=HUD_BOT:
-                            for rect, et, fkey, cur_val in hud_clickables:
-                                if rect.collidepoint(event.pos) and et in entities:
-                                    active_edit={'ent':et,'field':fkey,'text':str(cur_val)}
-                                    clicked_hud=True
+                    # HUD field tıklama
+                    clicked_hud = False
+                    if dragging_type is None and HUD_TOP<=event.pos[1]<=HUD_BOT:
+                        for rect, et, fkey, cur_val in hud_clickables:
+                            if rect.collidepoint(event.pos) and et in entities:
+                                active_edit={'ent':et,'field':fkey,'text':str(cur_val)}
+                                clicked_hud=True
+                                break
+
+                    if not clicked_hud:
+                        if plane_icon.collidepoint(event.pos):
+                            dragging_type='plane'; current_drag_angle=0
+                        elif missile_icon_rect.collidepoint(event.pos):
+                            dragging_type='missile'; current_drag_angle=0
+                        elif event.pos[0]<PANEL_X:
+                            cwx=(event.pos[0]-camera_x)/zoom
+                            cwy=(event.pos[1]-camera_y)/zoom
+                            for et,data in list(entities.items()):
+                                if abs(data['x']-cwx)<30 and abs(data['y']-cwy)<30:
+                                    dragging_type=et
+                                    current_drag_angle=data['angle']
                                     break
-
-                        if not clicked_hud:
-                            if plane_icon.collidepoint(event.pos):
-                                dragging_type='plane'; current_drag_angle=0
-                                # DÜZELTME 2: Buradaki oluşturma kodları silindi
-                            elif missile_icon_rect.collidepoint(event.pos):
-                                dragging_type='missile'; current_drag_angle=0
-                                # DÜZELTME 2: Buradaki oluşturma kodları silindi
-                            elif event.pos[0]<PANEL_X:
-                                cwx=(event.pos[0]-camera_x)/zoom
-                                cwy=(event.pos[1]-camera_y)/zoom
-                                for et,data in list(entities.items()):
-                                    if abs(data['x']-cwx)<30 and abs(data['y']-cwy)<30:
-                                        dragging_type=et
-                                        current_drag_angle=data['angle']
-                                        break  # entities'ten silmiyoruz, extra alanlar korunsun
 
                 elif event.button==3:
                     is_panning=True
@@ -523,7 +491,6 @@ def simulate_screen():
                     if mouse_pos[0]<PANEL_X:
                         wx=(mouse_pos[0]-camera_x)/zoom
                         wy=(mouse_pos[1]-camera_y)/zoom
-                        # extra alanlar entities'te zaten korunuyor, sadece konum güncelle
                         if dragging_type not in entities:
                             entities[dragging_type]={'x':wx,'y':wy,'angle':current_drag_angle,'extra':[]}
                         else:
@@ -531,10 +498,9 @@ def simulate_screen():
                             entities[dragging_type]['y']     = wy
                             entities[dragging_type]['angle'] = current_drag_angle
                     else:
-                        # DÜZELTME 3: Gri alana bırakıldıysa sil
                         if dragging_type in entities:
                             del entities[dragging_type]
-                            
+
                     dragging_type=None
                 elif event.button==3:
                     is_panning=False
@@ -543,7 +509,7 @@ def simulate_screen():
                 dx=event.pos[0]-last_mouse_pos[0]; dy=event.pos[1]-last_mouse_pos[1]
                 camera_x+=dx; camera_y+=dy
 
-        # Scroll sınırını güncelle (içerik yeni eklendiyse)
+        # Scroll sınırını güncelle
         hud_scroll = max(0, min(MAX_SCROLL, hud_scroll))
 
         last_mouse_pos=mouse_pos
