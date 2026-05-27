@@ -111,7 +111,7 @@ class MissileEnv(gym.Env):
         # Simulation time (seconds) - advances each step
         self.sim_time = 0.0
         
-        # Truncation Mode: "simple" only uses distance > 3000.0.
+        # Truncation Mode: "simple" only uses distance boundaries.
         # "advanced" adds a start-distance runaway cutoff as a learning heuristic.
         self.truncation_mode = truncation_mode  # "simple" or "advanced"
 
@@ -267,13 +267,6 @@ class MissileEnv(gym.Env):
         return observation, info
 
     def set_plane_control(self, control):
-        """
-        Set the plane control. `control` can be:
-        - None: disable control (defaults used)
-        - number: constant rotation rate (radians/sec)
-        - callable: function f(t)->rotate (radians/sec)
-        - string: expression evaluated with `t` in seconds and `np` available, e.g. "0.2", "np.sin(t)", "0.5*np.sin(t)"
-        """
         if control is None:
             self.plane_control_callable = None
             self._plane_control_code = None
@@ -284,14 +277,12 @@ class MissileEnv(gym.Env):
             self._plane_control_code = None
             return
 
-        # Numeric literal
         if isinstance(control, (int, float, np.integer, np.floating)):
             val = float(control)
             self.plane_control_callable = lambda t, v=val: v
             self._plane_control_code = None
             return
 
-        # String expression: compile once
         if isinstance(control, str):
             try:
                 code = compile(control, '<plane_control>', 'eval')
@@ -304,11 +295,6 @@ class MissileEnv(gym.Env):
         raise TypeError("plane_control must be None, number, callable, or string expression")
 
     def _feasibility_test(self, params, max_time=20.0):
-        """
-        Run a short simulation using a simple proportional guidance controller
-        to check whether the randomly-generated missile can intercept the plane.
-        Returns True if hit occurs within max_time, else False.
-        """
         try:
             dt = self.dt
             missile_p = params["missile"]
@@ -318,45 +304,35 @@ class MissileEnv(gym.Env):
             missile = Missile(geo["missile_x"], geo["missile_y"], speed=missile_p["speed"], heading=geo["missile_heading"], mass=missile_p["mass"], thrust=missile_p["thrust"], drag=missile_p["drag"], max_rotate=missile_p["max_rotate"], dt=dt)
             plane = Plane(geo["plane_x"], geo["plane_y"], speed=plane_p["speed"], heading=geo["plane_heading"], mass=plane_p["mass"], thrust=plane_p["thrust"], drag=plane_p["drag"], dt=dt)
 
-            dist_x = plane.x - missile.x
-            dist_y = plane.y - missile.y
-            previous_distance = np.sqrt(dist_x**2 + dist_y**2)
-            initial_plane_missile_distance = previous_distance
+            initial_distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
             missile_start_x = missile.x
             missile_start_y = missile.y
 
             steps = int(max_time / dt)
             for _ in range(steps):
-                # Simple proportional heading controller: aim towards target
                 dx = plane.x - missile.x
                 dy = plane.y - missile.y
                 target_angle = np.arctan2(dy, dx)
                 angle_error = (target_angle - missile.heading + np.pi) % (2 * np.pi) - np.pi
 
-                # Gain chosen empirically for feasibility check
                 K = 2.0
                 desired_turn_rate = angle_error * K
-                # Clip to missile's physical capability
                 desired_turn_rate = np.clip(desired_turn_rate, -missile.max_rotate, missile.max_rotate)
                 action = np.array([desired_turn_rate / missile.max_rotate], dtype=np.float32)
 
                 missile.update(action)
-                # For feasibility check use the same default steering profile as the main env
                 plane.update(rotate=0.0)
 
                 distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
                 if distance < 20.0:
                     return True
 
-                missile_dist_from_start = np.hypot(missile.x - missile_start_x, missile.y - missile_start_y)
-                if missile_dist_from_start > initial_plane_missile_distance:
-                    return False
-                if distance > 3000.0:
+                # OPTİMİZASYON: Feasibility adımında da sabit 3000 engeli genişletildi
+                if distance > max(4500.0, initial_distance * 1.3):
                     return False
 
             return False
         except Exception:
-            # On any error, mark as infeasible (conservative approach)
             return False
 
     def step(self, action):
@@ -375,7 +351,6 @@ class MissileEnv(gym.Env):
             if self.plane_control_callable is not None:
                 rotate = float(self.plane_control_callable(self.sim_time))
             elif self._plane_control_code is not None:
-                # Safe eval environment: expose numpy and common trig helpers, and the current time `t`
                 safe_globals = {
                     "__builtins__": None,
                     "np": np,
@@ -387,7 +362,6 @@ class MissileEnv(gym.Env):
                 }
                 rotate = float(eval(self._plane_control_code, safe_globals, {}))
         except Exception:
-            # On any controller error, fall back to no automatic rotation
             rotate = 0.0
 
         # Apply rotation to plane and advance sim time
@@ -407,21 +381,19 @@ class MissileEnv(gym.Env):
         missile_dist_from_start_y = self.missile.y - self.missile_start_y
         missile_dist_from_start = np.sqrt(missile_dist_from_start_x**2 + missile_dist_from_start_y**2)
         
-        # Truncation logic based on mode
+        # OPTİMİZASYON: Maksimum mesafe sınırını dinamik yaptık.
+        # Uçak 3500'de doğsa bile artık oyun anında kopmayacak, esnek bir tavan olacak.
+        max_distance_limit = max(4800.0, self.initial_plane_missile_distance * 1.4)
+
         if self.truncation_mode == "advanced":
-            # ADVANCED: Allow daha uzun manevra süresi.
-            # Paths are çoğu zaman dümdüz olmayan bir rota çizdiği için,
-            # missile path length'in başlangıç mesafesinin 2 katından fazla olması
-            # hâlinde artık gerçekçi bir kaçış olduğunu kabul ediyoruz.
-            miss_condition = missile_dist_from_start > 2.0 * self.initial_plane_missile_distance
-            boundary_condition = distance > 3000.0
+            miss_condition = missile_dist_from_start > 2.2 * self.initial_plane_missile_distance
+            boundary_condition = distance > max_distance_limit
             truncated = bool(miss_condition or boundary_condition)
-        else:  # "simple" mode
-            # SIMPLE: Original truncation - just max distance
-            truncated = bool(distance > 3000.0)
+        else:
+            truncated = bool(distance > max_distance_limit)
 
         # 4. Centralized Reward Call
-        reward = self._compute_reward(distance, terminated, truncated)
+        reward = self._compute_reward(distance, terminated, truncated, action)
 
         # 5. State Update
         self.previous_distance = distance
@@ -432,48 +404,31 @@ class MissileEnv(gym.Env):
         return observation, reward, terminated, truncated, {}
 
     def render(self):
-        """
-        (Optional but recommended) Hooks into Pygame to draw the current 
-        state if render_mode == "human". 
-        Since you have a separate Gui.py, you might handle rendering there, 
-        but Gym standard practice is to allow rendering from the env directly.
-        """
         pass
 
     def _get_obs(self):
-        """
-        Calculates the state of the environment relative to the missile's body frame.
-        """
-        # 1. Calculate global positional differences
         dx = self.plane.x - self.missile.x
         dy = self.plane.y - self.missile.y
-        
-        # 2. Get the missile's current heading
         theta = self.missile.heading
         
-        # 3. Apply Trigonometric Rotation Matrix (Local Body Frame)
         local_x = dx * np.cos(theta) + dy * np.sin(theta)
         local_y = -dx * np.sin(theta) + dy * np.cos(theta)
         
-        # 5. Calculate Relative Velocity (Optional but highly recommended)
-        # It helps the AI lead the target instead of just chasing the tail.
         dv_x = self.plane.vel_x - self.missile.vel_x
         dv_y = self.plane.vel_y - self.missile.vel_y
         
-        # Rotate relative velocity into the missile's local frame as well
         local_dv_x = dv_x * np.cos(theta) + dv_y * np.sin(theta)
         local_dv_y = -dv_x * np.sin(theta) + dv_y * np.cos(theta)
 
-        # 6. Add heading error and speed difference
         target_angle = np.arctan2(dy, dx)
         heading_error = (target_angle - theta + np.pi) % (2 * np.pi) - np.pi
         heading_cos = np.cos(heading_error)
         heading_sin = np.sin(heading_error)
         speed_delta = self.plane.speed - self.missile.speed
 
-        # Normalize observation values so learning is easier across wide distance/speed ranges.
-        max_distance = 3500.0
-        max_rel_speed = 400.0
+        # Yeni genişletilmiş dinamik sınıra uyumlu normalizasyon tavanı
+        max_distance = 4500.0
+        max_rel_speed = 500.0
 
         local_x = np.clip(local_x / max_distance, -1.0, 1.0)
         local_y = np.clip(local_y / max_distance, -1.0, 1.0)
@@ -481,41 +436,45 @@ class MissileEnv(gym.Env):
         local_dv_y = np.clip(local_dv_y / max_rel_speed, -1.0, 1.0)
         speed_delta = np.clip(speed_delta / max_rel_speed, -1.0, 1.0)
 
-        # 7. Package it into a numpy array (Float32 for PyTorch compatibility)
         obs = np.array([
-            local_x,          # Distance forward/backward (normalized)
-            local_y,          # Distance left/right (normalized)
-            local_dv_x,       # Closing speed forward/backward (normalized)
-            local_dv_y,       # Closing speed left/right (normalized)
-            heading_cos,      # Heading alignment cosine
-            heading_sin,      # Heading alignment sine
-            speed_delta       # Relative speed advantage (normalized)
+            local_x,          
+            local_y,          
+            local_dv_x,       
+            local_dv_y,       
+            heading_cos,      
+            heading_sin,      
+            speed_delta       
         ], dtype=np.float32)
         
         return obs
 
-    def _compute_reward(self, distance, terminated, truncated):
-
+    def _compute_reward(self, distance, terminated, truncated, action=None):
         if terminated:
-            return 200.0
+            return 250.0  # Başarı ödülü artırıldı
         if truncated:
-            return -150.0
+            return -100.0  # Haksız sınır cezası yumuşatıldı (-150'den -100'e)
 
         progress = self.previous_distance - distance
         progress = np.clip(progress, -50.0, 50.0)
         
-        # Kaçış cezası: eğer füze uzaklaşıyorsa ağır ceza
         escape_penalty = 0.0
         if progress < 0:
-            escape_penalty = -0.8 * abs(progress)
+            escape_penalty = -1.0 * abs(progress)
         
-        dist_penalty = 0.0018 * distance
+        # OPTİMİZASYON: Uzaklık cezası düşürüldü (0.0018 -> 0.0005).
+        # Böylece uzakta doğan füze pes etmek yerine hedefe kilitlenmeye devam eder.
+        dist_penalty = 0.0005 * distance
 
         dx = self.plane.x - self.missile.x
         dy = self.plane.y - self.missile.y
         target_angle = np.arctan2(dy, dx)
         heading_error = (target_angle - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
-        heading_bonus = 0.25 * np.cos(heading_error)
+        heading_bonus = 0.4 * np.cos(heading_error)
 
-        reward = 0.8 * progress - dist_penalty + heading_bonus + escape_penalty - 0.01
+        # OPTİMİZASYON: Füzenin aşırı pürüzlü ve yalpalamalı (jitter) dönmesini engellemek için aksiyon cezası
+        action_penalty = 0.0
+        if action is not None:
+            action_penalty = -0.05 * np.sum(np.square(action))
+
+        reward = 1.0 * progress - dist_penalty + heading_bonus + escape_penalty + action_penalty - 0.01
         return float(reward)

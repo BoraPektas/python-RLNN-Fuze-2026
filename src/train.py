@@ -41,7 +41,7 @@ def main():
     # 3. Eğitimi Başlatıyoruz
     # GPU ile hızlı test amaçlı eğitim
     print("Füze Yapay Zekası Eğitimi Başlıyor... (200000 timesteps, GPU ile)")
-    model.learn(total_timesteps=200000)
+    model.learn(total_timesteps=300000)
     print("Eğitim tamamlandı!")
 
     # Modelimizi daha sonra GUI (Arayüz) içinde direkt çağırıp kullanabilmek için kaydediyoruz

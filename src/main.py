@@ -1,4 +1,3 @@
-#BU DOSYAYI TERMİMALDEN ÇALIŞTIRIN!! ÇÜNKÜ BORA'NIN LINUX SEVDASI YÜZÜNDEN PYTHON3 YÜZÜNDEN ÇALIŞMIYOR
 #!/usr/bin/env python3
 """
 main.py: Proje giriş noktası — GUI, eğitim, veya hızlı test seçeneği sunar.
@@ -43,7 +42,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Eğer hiçbir seçenek belirtilmemişse GUI başlat (varsayılan)
     if not (args.train or args.test):
         args.gui = True
     
@@ -51,10 +49,8 @@ def main():
         if args.train:
             print("🚀 Eğitim başlatılıyor...")
             from train import main as train_main
-            # train_main() zaten --skip-test'i elle argparse'dan okur
             import os
             os.chdir(os.path.dirname(os.path.abspath(__file__)))
-            # Eğer--skip-test geçildiyse, bunu train'e aktar
             sys.argv = ["train.py"]
             if args.skip_test:
                 sys.argv.append("--skip-test")
@@ -139,53 +135,58 @@ def main():
                     f"✅ Test tamamlandı! Bölümler: {episodes}, vurma: {hits}, kaçırma: {misses}, başarı oranı: {success_rate:.1f}%"
                 )
 
-                plt.figure(figsize=(10, 9))
+                # ===== YENİLENMİŞ MATPLOTLIB GÖRSELLEŞTİRME BLOGU =====
+                plt.figure(figsize=(12, 10))
+                
+                # İlk Pas: Başarılı olanları soluk renkte arkaya çiziyoruz
                 for episode in episode_trajectories:
+                    if episode["event"] != "hit":
+                        continue
                     missile_x = [p[0] for p in episode["missile"]]
                     missile_y = [p[1] for p in episode["missile"]]
                     plane_x = [p[0] for p in episode["plane"]]
                     plane_y = [p[1] for p in episode["plane"]]
+                    
+                    plt.plot(plane_x, plane_y, color="orange", linestyle="--", alpha=0.2, linewidth=0.8)
+                    plt.plot(missile_x, missile_y, color="blue", alpha=0.3, linewidth=1.0)
+                    plt.scatter(missile_x[-1], missile_y[-1], c="green", s=30, marker="x", alpha=0.4)
+
+                # İkinci Pas: Iskalayan / Kaçan Rotaları en üste pürüzsüzce patlatıyoruz
+                for episode in episode_trajectories:
                     if episode["event"] == "hit":
-                        plane_color = "orange"
-                        missile_color = "blue"
-                        plane_alpha = 0.8
-                        missile_alpha = 1.0
-                        plane_width = 1.0
-                        missile_width = 1.5
-                        missile_style = "-"
-                    else:
-                        plane_color = "darkorange"
-                        missile_color = "red"
-                        plane_alpha = 0.7
-                        missile_alpha = 1.0
-                        plane_width = 1.5
-                        missile_width = 2.0
-                        missile_style = "--"
+                        continue
+                    missile_x = [p[0] for p in episode["missile"]]
+                    missile_y = [p[1] for p in episode["missile"]]
+                    plane_x = [p[0] for p in episode["plane"]]
+                    plane_y = [p[1] for p in episode["plane"]]
+                    
+                    # Kaçan uçak kalın bordo, ıskalayan füze kalın kesikli kırmızı
+                    plt.plot(plane_x, plane_y, color="darkred", linestyle="-.", alpha=0.9, linewidth=2.2)
+                    plt.plot(missile_x, missile_y, color="red", linestyle="--", alpha=1.0, linewidth=2.5)
+                    
+                    # Kritik kaçış son konum işaretçileri
+                    plt.scatter(missile_x[-1], missile_y[-1], c="black", s=130, marker="X", zorder=5)
+                    plt.scatter(plane_x[-1], plane_y[-1], c="purple", s=110, marker="o", zorder=5)
 
-                    plt.plot(plane_x, plane_y, color=plane_color, linestyle="--", alpha=plane_alpha, linewidth=plane_width)
-                    plt.plot(missile_x, missile_y, color=missile_color, alpha=missile_alpha, linewidth=missile_width, linestyle=missile_style)
-                    if episode["event"] in {"hit", "miss"}:
-                        marker_color = "green" if episode["event"] == "hit" else "red"
-                        plt.scatter(missile_x[-1], missile_y[-1], c=marker_color, s=60, marker="x")
-                        plt.scatter(plane_x[-1], plane_y[-1], c=marker_color, s=40, marker="o")
-
-                success_rate = 0.0
-                if hits + misses > 0:
-                    success_rate = hits / (hits + misses) * 100.0
-                plt.title(f"2D Test Trajektoryası: {hits} vuruş / {episodes} bölüm ({success_rate:.1f}% başarı)")
+                plt.title(f"2D Test Trajektoryası: {hits} vuruş / {episodes} bölüm ({success_rate:.1f}% başarı)\n(Kalın ve Kırmızı Çizgiler Iskalayan/Kaçırılan Rotaları Belirtir)", fontsize=12, fontweight='bold')
                 plt.xlabel("X Pozisyonu")
                 plt.ylabel("Y Pozisyonu")
+                
                 handles = [
-                    Line2D([0], [0], color="orange", linestyle="--", label="Uçak Yolu"),
-                    Line2D([0], [0], color="blue", label="Füze Yolu"),
-                    Line2D([0], [0], color="green", marker="x", linestyle="None", label="Vuruş"),
-                    Line2D([0], [0], color="red", marker="x", linestyle="None", label="Kaçırma"),
+                    Line2D([0], [0], color="orange", linestyle="--", alpha=0.4, label="Uçak Yolu (Başarılı)"),
+                    Line2D([0], [0], color="blue", alpha=0.4, label="Füze Yolu (Başarılı)"),
+                    Line2D([0], [0], color="darkred", linestyle="-.", linewidth=2, label="Uçak Yolu (KAÇTI!)"),
+                    Line2D([0], [0], color="red", linestyle="--", linewidth=2, label="Füze Yolu (KAÇIRDI!)"),
+                    Line2D([0], [0], color="green", marker="x", linestyle="None", markersize=8, label="Başarılı Vuruş"),
+                    Line2D([0], [0], color="black", marker="X", linestyle="None", markersize=10, label="Iskalama Noktası (Füze)"),
+                    Line2D([0], [0], color="purple", marker="o", linestyle="None", markersize=8, label="Kurtulma Noktası (Uçak)"),
                 ]
                 plt.legend(handles=handles, loc="upper right")
                 plt.grid(True, alpha=0.3)
                 plt.axis("equal")
                 plt.tight_layout()
                 plt.show()
+
             except FileNotFoundError:
                 print("❌ Hata: 'missile_ppo_model.zip' bulunamadı. Önce --train ile eğitim yapın.")
             finally:
