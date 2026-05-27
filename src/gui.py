@@ -4,6 +4,8 @@ import sys
 import pyperclip
 import webbrowser
 import math
+import subprocess
+import os
 import tkinter as tk
 from tkinter import filedialog
 
@@ -63,10 +65,121 @@ def main_menu():
                 pygame.quit(); sys.exit()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if btn_sim.collidepoint(mp):   simulate_screen()
-                if btn_train.collidepoint(mp): print("train tarafina geciliyor")
+                if btn_train.collidepoint(mp): train_screen()
                 if btn_about.collidepoint(mp): about_screen()
 
         pygame.display.update()
+
+
+# ─── TRAIN MODEL EKRANI ───────────────────────────────────────────────────────
+def train_screen():
+    running = True
+    clock = pygame.time.Clock() 
+    
+    btn_w, btn_h = 450, 70
+    bx = 500 - btn_w // 2
+    
+    # Load butonu kalktığı için kalan iki butonu ekrana daha orantılı yaydık
+    btn_start_train = pygame.Rect(bx, 280, btn_w, btn_h)
+    btn_back        = pygame.Rect(bx, 420, btn_w, btn_h)
+    
+    status_message = "Bekleniyor..."
+    status_color = (50, 50, 150)
+
+    is_training = False
+    training_process = None
+    progress_value = 0.0
+
+    while running:
+        screen.fill(BACKGROUND_COLOR)
+        mp = pygame.mouse.get_pos()
+
+        draw_text('TRAIN MODEL', caption_font, TEXT_COLOR, screen, 500, 120)
+
+        # Sadece Start ve Back butonları çiziliyor
+        for rect, label in [(btn_start_train, "START TRAINING"),
+                            (btn_back, "BACK")]:
+            c = (130, 130, 130) if rect.collidepoint(mp) else BUTTON_COLOR
+            pygame.draw.rect(screen, c, rect, border_radius=8)
+            pygame.draw.rect(screen, TEXT_COLOR, rect, 3, border_radius=8)
+            draw_text(label, text_font, WHITE, screen, rect.centerx, rect.centery)
+
+        draw_text(f"Durum: {status_message}", small_font, status_color, screen, 500, 520)
+
+        # ─── YÜKLEME BARI (PROGRESS BAR) ANİMASYONU ───
+        if is_training:
+            if training_process and training_process.poll() is not None:
+                is_training = False 
+                status_message = "Eğitim Tamamlandı! (.zip oluşturuldu)"
+                status_color = (0, 150, 0)
+            else:
+                bar_w = 450
+                bar_h = 30
+                bar_x = 500 - bar_w // 2
+                bar_y = 600 
+
+                progress_value += 1.5 
+                if progress_value > 100:
+                    progress_value = 0
+
+                pygame.draw.rect(screen, (40, 40, 40), (bar_x, bar_y, bar_w, bar_h), border_radius=5)
+                
+                fill_w = int((progress_value / 100) * bar_w)
+                if fill_w > 0:
+                    pygame.draw.rect(screen, (40, 200, 40), (bar_x, bar_y, fill_w, bar_h), border_radius=5)
+                
+                pygame.draw.rect(screen, (200, 200, 200), (bar_x, bar_y, bar_w, bar_h), 2, border_radius=5)
+                
+                draw_text("Eğitiliyor, lütfen bekleyin...", small_font, (60, 60, 60), screen, 500, bar_y + 45)
+
+        if any(r.collidepoint(mp) for r in [btn_start_train, btn_back]):
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
+        else:
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit(); sys.exit()
+            
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if btn_back.collidepoint(mp):
+                    running = False
+                
+                elif btn_start_train.collidepoint(mp):
+                    if not is_training: 
+                        # --- YENİ EKLENEN KISIM: KAYDETME PENCERESİ ---
+                        root = tk.Tk()
+                        root.withdraw()
+                        root.attributes('-topmost', True)
+                        
+                        save_path = filedialog.asksaveasfilename(
+                            title="Modeli Nereye Kaydedelim? (.zip)",
+                            defaultextension=".zip",
+                            filetypes=[("Zip Dosyaları", "*.zip"), ("Tüm Dosyalar", "*.*")]
+                        )
+                        root.destroy()
+                        
+                        if save_path: # Kullanıcı iptale basmadıysa ve bir yol seçtiyse
+                            is_training = True
+                            progress_value = 0.0
+                            status_message = "Eğitim başlatıldı! (Arka planda çalışıyor...)"
+                            status_color = (0, 150, 0)
+                            
+                            try:
+                                train_path = os.path.join(os.path.dirname(__file__), 'train.py')
+                                # Seçilen "save_path" değişkenini train.py dosyasına parametre olarak gönderiyoruz
+                                training_process = subprocess.Popen([sys.executable, train_path, save_path])
+                            except Exception as e:
+                                status_message = f"Hata: {str(e)}"
+                                status_color = (200, 0, 0)
+                                is_training = False
+                        else:
+                            # Kullanıcı dosya seçme ekranını kapattıysa
+                            status_message = "Kaydetme iptal edildi. Eğitim başlamadı."
+                            status_color = (150, 50, 50)
+
+        pygame.display.update()
+        clock.tick(60)
 
 
 # ─── ABOUT ────────────────────────────────────────────────────────────────────
@@ -244,7 +357,7 @@ def simulate_screen():
             btn_label = f"✓ {short}"
             lbl_color = (180,255,180)
         else:
-            btn_label = "▶  SELECT MODEL"
+            btn_label = "SELECT MODEL"
             lbl_color = (200,255,200)
         lbl_surf = small_font.render(btn_label, True, lbl_color)
         lbl_rect = lbl_surf.get_rect(center=btn_model.center)
