@@ -427,7 +427,7 @@ class MissileEnv(gym.Env):
         speed_delta = self.plane.speed - self.missile.speed
 
         # Yeni genişletilmiş dinamik sınıra uyumlu normalizasyon tavanı
-        max_distance = 4500.0
+        max_distance = 45000.0
         max_rel_speed = 500.0
 
         local_x = np.clip(local_x / max_distance, -1.0, 1.0)
