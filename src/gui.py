@@ -8,6 +8,15 @@ import subprocess
 import os
 import tkinter as tk
 from tkinter import filedialog
+import copy
+import numpy as np
+
+# Yapay Zeka ve Fizik Motoru Entegrasyonları
+try:
+    from stable_baselines3 import PPO
+    from environment import MissileEnv
+except ImportError:
+    print("Uyarı: stable_baselines3 veya environment modülü bulunamadı. Simülasyon başlatılamayabilir.")
 
 pygame.init()
 
@@ -79,7 +88,6 @@ def train_screen():
     btn_w, btn_h = 450, 70
     bx = 500 - btn_w // 2
     
-    # Load butonu kalktığı için kalan iki butonu ekrana daha orantılı yaydık
     btn_start_train = pygame.Rect(bx, 280, btn_w, btn_h)
     btn_back        = pygame.Rect(bx, 420, btn_w, btn_h)
     
@@ -96,7 +104,6 @@ def train_screen():
 
         draw_text('TRAIN MODEL', caption_font, TEXT_COLOR, screen, 500, 120)
 
-        # Sadece Start ve Back butonları çiziliyor
         for rect, label in [(btn_start_train, "START TRAINING"),
                             (btn_back, "BACK")]:
             c = (130, 130, 130) if rect.collidepoint(mp) else BUTTON_COLOR
@@ -147,7 +154,6 @@ def train_screen():
                 
                 elif btn_start_train.collidepoint(mp):
                     if not is_training: 
-                        # --- YENİ EKLENEN KISIM: KAYDETME PENCERESİ ---
                         root = tk.Tk()
                         root.withdraw()
                         root.attributes('-topmost', True)
@@ -159,7 +165,7 @@ def train_screen():
                         )
                         root.destroy()
                         
-                        if save_path: # Kullanıcı iptale basmadıysa ve bir yol seçtiyse
+                        if save_path:
                             is_training = True
                             progress_value = 0.0
                             status_message = "Eğitim başlatıldı! (Arka planda çalışıyor...)"
@@ -167,14 +173,12 @@ def train_screen():
                             
                             try:
                                 train_path = os.path.join(os.path.dirname(__file__), 'train.py')
-                                # Seçilen "save_path" değişkenini train.py dosyasına parametre olarak gönderiyoruz
                                 training_process = subprocess.Popen([sys.executable, train_path, save_path])
                             except Exception as e:
                                 status_message = f"Hata: {str(e)}"
                                 status_color = (200, 0, 0)
                                 is_training = False
                         else:
-                            # Kullanıcı dosya seçme ekranını kapattıysa
                             status_message = "Kaydetme iptal edildi. Eğitim başlamadı."
                             status_color = (150, 50, 50)
 
@@ -234,62 +238,62 @@ def about_screen():
 # ─── SIMULATE ─────────────────────────────────────────────────────────────────
 def simulate_screen():
     running = True
+    clock = pygame.time.Clock()
 
     camera_x, camera_y = 0.0, 0.0
     zoom = 1.0
 
-    # entities[type] = {'x','y','angle', 'extra': [{'name':str,'value':float}, ...]}
     entities       = {}
     dragging_type  = None
     current_drag_angle = 0
     is_panning     = False
     last_mouse_pos = pygame.mouse.get_pos()
-    active_edit    = None   # {'ent','field','text'}   field: 'x_real'|'y_real'|'angle'|('extra',idx)
+    active_edit    = None   
 
-    # ── Panel ayarları ──────────────────────────────────────────────
     PANEL_W    = 300
-    PANEL_X    = 1000 - PANEL_W   # = 700
+    PANEL_X    = 1000 - PANEL_W   
     PANEL_H    = 750
     PANEL_RECT = pygame.Rect(PANEL_X, 0, PANEL_W, PANEL_H)
 
-    # MODEL SEÇ butonu üstte → ikon alanı biraz uzadı
-    ICON_AREA_H = 255   # model butonu + ikonlar + etiketler
+    ICON_AREA_H = 255   
     ESC_AREA_H  = 40
     HUD_TOP     = ICON_AREA_H
     HUD_BOT     = PANEL_H - ESC_AREA_H
     HUD_H       = HUD_BOT - HUD_TOP
 
-    # Model path
-    model_path = None   # seçilen .pt/.pth vb. dosya yolu
+    # ── SİMÜLASYON DURUMU VE YAPAY ZEKA DEĞİŞKENLERİ ──
+    is_playing = False
+    initial_entities_state = {} 
+    
+    loaded_model = None
+    loaded_model_path = None
+    env = None
+    current_obs = None
 
-    # ── MODEL SEÇ butonu (üst kısım) ────────────────────────────────
     btn_model = pygame.Rect(PANEL_X + 10, 8, PANEL_W - 20, 28)
+    
+    # ── KONTROL BUTONLARI (PLAY/STOP/RESET) ──
+    btn_play  = pygame.Rect(20, 20, 100, 40)
+    btn_stop  = pygame.Rect(130, 20, 100, 40)
+    btn_reset = pygame.Rect(240, 20, 100, 40)
 
-    # ── İkonlar yan yana ────────────────────────────────────────────
     ICON_SIZE = 60
-    half_w    = PANEL_W // 2   # 150
+    half_w    = PANEL_W // 2  
 
-    # Plane: sol yarı ortası — y biraz aşağı kaydı (model butonuna yer açıldı)
     plane_cx   = PANEL_X + half_w // 2
     plane_cy   = 130
-    plane_icon = pygame.Rect(plane_cx - ICON_SIZE//2, plane_cy - ICON_SIZE//2,
-                             ICON_SIZE, ICON_SIZE)
+    plane_icon = pygame.Rect(plane_cx - ICON_SIZE//2, plane_cy - ICON_SIZE//2, ICON_SIZE, ICON_SIZE)
 
-    # Missile: sağ yarı ortası
     missile_cx = PANEL_X + half_w + half_w // 2
     missile_cy = 130
-    missile_icon_rect   = pygame.Rect(missile_cx - ICON_SIZE//2, missile_cy - ICON_SIZE//2,
-                                      ICON_SIZE, ICON_SIZE)
+    missile_icon_rect   = pygame.Rect(missile_cx - ICON_SIZE//2, missile_cy - ICON_SIZE//2, ICON_SIZE, ICON_SIZE)
     missile_icon_center = (missile_cx, missile_cy)
 
     hud_scroll    = 0
     hud_content_h = 0
     MAX_SCROLL    = 0
-
     hud_surface = pygame.Surface((PANEL_W, 4000))
-
-    # Tıklanabilir öğeler listesi (her frame doldurulur)
-    hud_clickables = []   # (screen_rect, ent_type, field_key, cur_val)
+    hud_clickables = []  
 
     def draw_rotated_entity(surface, et, cx, cy, size, angle):
         half = size/2
@@ -311,6 +315,27 @@ def simulate_screen():
 
     while running:
         mouse_pos = pygame.mouse.get_pos()
+        
+        # ── YAPAY ZEKA (AI) FİZİK MOTORU DÖNGÜSÜ ──
+        if is_playing and loaded_model is not None and env is not None:
+            # 1. Modelden kararı (action) iste
+            action, _ = loaded_model.predict(current_obs, deterministic=True)
+            
+            # 2. Fizik motorunda (environment.py) 1 frame ilerle
+            current_obs, reward, terminated, truncated, info = env.step(action)
+            
+            # 3. Fizik motorundan dönen yeni koordinatları GUI'ye güncelle
+            entities['plane']['x'] = env.plane.x
+            entities['plane']['y'] = env.plane.y
+            entities['plane']['angle'] = -math.degrees(env.plane.heading)
+            
+            entities['missile']['x'] = env.missile.x
+            entities['missile']['y'] = env.missile.y
+            entities['missile']['angle'] = -math.degrees(env.missile.heading)
+            
+            # 4. Çarpışma veya alandan çıkma olursa simülasyonu durdur
+            if terminated or truncated:
+                is_playing = False
 
         # ── GRID + ARKA PLAN ──────────────────────────────────────────
         screen.fill(WHITE)
@@ -320,15 +345,11 @@ def simulate_screen():
 
         for wy in range(int(wt//50)*50, int(wb)+50, 50):
             sy=wy*zoom+camera_y
-            pygame.draw.line(screen,
-                (120,120,120) if wy%500==0 else (220,220,220),
-                (0,sy),(PANEL_X,sy), 3 if wy%500==0 else 1)
+            pygame.draw.line(screen, (120,120,120) if wy%500==0 else (220,220,220), (0,sy),(PANEL_X,sy), 3 if wy%500==0 else 1)
 
         for wx in range(int(wl//50)*50, int(wr)+50, 50):
             sx=wx*zoom+camera_x
-            pygame.draw.line(screen,
-                (120,120,120) if wx%500==0 else (220,220,220),
-                (sx,0),(sx,PANEL_H), 3 if wx%500==0 else 1)
+            pygame.draw.line(screen, (120,120,120) if wx%500==0 else (220,220,220), (sx,0),(sx,PANEL_H), 3 if wx%500==0 else 1)
 
         # ── NESNELER ──────────────────────────────────────────────────
         size=60*zoom
@@ -339,6 +360,20 @@ def simulate_screen():
             sx=data['x']*zoom+camera_x; sy=data['y']*zoom+camera_y
             if sx-size/2>PANEL_X: continue
             draw_rotated_entity(screen,et,sx,sy,size,data['angle'])
+            
+        # ── KONTROL BUTONLARINI ÇİZME ──
+        for rect, label, base_color in [(btn_play, "PLAY", (60, 160, 60)), 
+                                        (btn_stop, "STOP", (180, 60, 60)), 
+                                        (btn_reset, "RESET", (180, 160, 60))]:
+            if (label == "PLAY" and is_playing) or (label == "STOP" and not is_playing):
+                c = (base_color[0]//2, base_color[1]//2, base_color[2]//2) # Daha koyu
+            else:
+                c = (200, 200, 200) if rect.collidepoint(mouse_pos) else base_color
+                
+            pygame.draw.rect(screen, c, rect, border_radius=5)
+            pygame.draw.rect(screen, (30,30,30), rect, 2, border_radius=5)
+            draw_text(label, small_font, WHITE if c != (200,200,200) else TEXT_COLOR, screen, rect.centerx, rect.centery)
+
 
         # ── SAĞ PANEL ─────────────────────────────────────────────────
         pygame.draw.rect(screen, PANEL_COLOR, PANEL_RECT)
@@ -350,9 +385,9 @@ def simulate_screen():
         btn_bc   = (120,200,120) if mp_hover else (80,140,80)
         pygame.draw.rect(screen, btn_bg, btn_model, border_radius=4)
         pygame.draw.rect(screen, btn_bc, btn_model, 1, border_radius=4)
-        if model_path:
+        if loaded_model_path:
             import os
-            short = os.path.basename(model_path)
+            short = os.path.basename(loaded_model_path)
             if len(short) > 22: short = short[:19] + "..."
             btn_label = f"✓ {short}"
             lbl_color = (180,255,180)
@@ -365,32 +400,23 @@ def simulate_screen():
         if mp_hover:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND)
 
-        # ── ENTITIES başlığı (ikon bloğunun hemen üstü) ───────────────
-        draw_text("ENTITIES", small_font, (180,180,180), screen,
-                  PANEL_X + PANEL_W//2, plane_cy - ICON_SIZE//2 - 18)
+        draw_text("ENTITIES", small_font, (180,180,180), screen, PANEL_X + PANEL_W//2, plane_cy - ICON_SIZE//2 - 18)
 
-        # Ayırıcı çizgi (sol/sağ yarı arası, sadece ikon bloğu seviyesinde)
         mid_x = PANEL_X + half_w
-        pygame.draw.line(screen, (80,80,80),
-                         (mid_x, plane_cy - ICON_SIZE//2 - 6),
-                         (mid_x, plane_cy + ICON_SIZE//2 + 22), 1)
+        pygame.draw.line(screen, (80,80,80), (mid_x, plane_cy - ICON_SIZE//2 - 6), (mid_x, plane_cy + ICON_SIZE//2 + 22), 1)
 
-        # Plane ikonu (mavi kare)
         pygame.draw.rect(screen, (0,180,255), plane_icon)
         draw_text("PLANE", small_font, WHITE, screen, plane_cx, plane_cy + 48)
 
-        # Missile ikonu (kırmızı üçgen)
         tri = [(missile_icon_center[0],   missile_icon_center[1]-30),
                (missile_icon_center[0]-30, missile_icon_center[1]+30),
                (missile_icon_center[0]+30, missile_icon_center[1]+30)]
         pygame.draw.polygon(screen, (220,20,20), tri)
         draw_text("MISSILE", small_font, WHITE, screen, missile_cx, missile_cy + 48)
 
-        # ── HUD YÜZEYİ ────────────────────────────────────────────────
         hud_surface.fill(PANEL_COLOR)
         hud_clickables.clear()
 
-        # Sürüklenen entity'nin display kopyası
         display_entities = {}
         for k,v in entities.items():
             display_entities[k] = dict(v)
@@ -409,12 +435,10 @@ def simulate_screen():
             name   = "PLANE" if et=='plane' else "MISSILE"
             extra  = data.get('extra', [])
 
-            # ── Başlık ──
             hdr = small_font.render(f"── {name} ──", True, (200,200,200))
             hud_surface.blit(hdr, (8, cy_surf))
             cy_surf += 24
 
-            # ── Sabit alanlar ──
             fixed_fields = [
                 (f"X: {real_x}m",    real_x, 'x_real'),
                 (f"Y: {real_y}m",    real_y, 'y_real'),
@@ -445,15 +469,12 @@ def simulate_screen():
                 hud_clickables.append((screen_rect, et, fkey, val))
                 cy_surf += ROW_H
 
-            # ── Ekstra alanlar (sadece görüntüleme + düzenleme, ekleme/silme yok) ──
             for idx, ex in enumerate(extra):
                 fkey  = ('extra', idx)
                 label = f"{ex['name']}: {ex['value']}"
                 val   = ex['value']
 
-                is_active=(active_edit and active_edit['ent']==et
-                           and active_edit['field']==fkey)
-
+                is_active=(active_edit and active_edit['ent']==et and active_edit['field']==fkey)
                 screen_rect=pygame.Rect(PANEL_X+8, HUD_TOP+cy_surf-hud_scroll, FIELD_W, ROW_H-2)
                 surf_rect  =pygame.Rect(8, cy_surf, FIELD_W, ROW_H-2)
 
@@ -477,7 +498,7 @@ def simulate_screen():
                 hud_clickables.append((screen_rect, et, fkey, val))
                 cy_surf += ROW_H
 
-            cy_surf += 10  # entity arası boşluk
+            cy_surf += 10 
 
         hud_content_h = cy_surf
         MAX_SCROLL    = max(0, hud_content_h - HUD_H)
@@ -488,26 +509,22 @@ def simulate_screen():
         pygame.draw.line(screen,(80,80,80),(PANEL_X,HUD_TOP),  (1000,HUD_TOP),   1)
         pygame.draw.line(screen,(80,80,80),(PANEL_X,HUD_BOT+1),(1000,HUD_BOT+1), 1)
 
-        # Scroll çubuğu
         if MAX_SCROLL > 0:
             sb_h  = max(20, int(HUD_H * HUD_H / hud_content_h))
             sb_y  = HUD_TOP + int(hud_scroll/MAX_SCROLL*(HUD_H-sb_h))
             pygame.draw.rect(screen,(130,130,130),pygame.Rect(1000-6,sb_y,6,sb_h),border_radius=3)
 
-        # ESC etiketi
         draw_text("BACK (ESC)",small_font,(150,150,150),screen,PANEL_X+PANEL_W//2,PANEL_H-20)
 
-        # Sürüklenen nesne
         if dragging_type:
             draw_rotated_entity(screen,dragging_type,mouse_pos[0],mouse_pos[1],60,current_drag_angle)
 
-        # İmleç sıfırlama
         on_interactive = (
             btn_model.collidepoint(mouse_pos) or
-            any(
-                r.collidepoint(mouse_pos) and HUD_TOP<=mouse_pos[1]<=HUD_BOT
-                for r,*_ in hud_clickables
-            )
+            btn_play.collidepoint(mouse_pos) or
+            btn_stop.collidepoint(mouse_pos) or
+            btn_reset.collidepoint(mouse_pos) or
+            any(r.collidepoint(mouse_pos) and HUD_TOP<=mouse_pos[1]<=HUD_BOT for r,*_ in hud_clickables)
         )
         if not on_interactive:
             pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
@@ -517,7 +534,6 @@ def simulate_screen():
             if event.type == pygame.QUIT:
                 pygame.quit(); sys.exit()
 
-            # Klavye
             if event.type == pygame.KEYDOWN:
                 if active_edit:
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
@@ -533,32 +549,76 @@ def simulate_screen():
                     if event.key == pygame.K_ESCAPE:
                         running = False
 
-            # Mouse
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
-                    # Aktif edit varsa kaydet
                     if active_edit:
                         _apply_edit(entities, active_edit)
                         active_edit = None
 
-                    # MODEL SEÇ butonu
+                    # ── YENİ: PLAY BUTONU VE YAPAY ZEKAYI TETİKLEME ──
+                    if btn_play.collidepoint(event.pos):
+                        if not is_playing:
+                            if not loaded_model_path:
+                                print("Lütfen sağ panelden bir yapay zeka modeli (.zip) seçin!")
+                            elif 'plane' not in entities or 'missile' not in entities:
+                                print("Haritada hem uçak hem de füze olmalıdır!")
+                            else:
+                                is_playing = True
+                                if not initial_entities_state:
+                                    initial_entities_state = copy.deepcopy(entities)
+                                
+                                try:
+                                    loaded_model = PPO.load(loaded_model_path)
+                                    env = MissileEnv()
+                                    env.reset()
+                                    
+                                    # Pygame'deki koordinatları Gymnasium ortamına aktar
+                                    env.plane.x = entities['plane']['x']
+                                    env.plane.y = entities['plane']['y']
+                                    env.plane.heading = math.radians(-entities['plane']['angle'])
+                                    
+                                    env.missile.x = entities['missile']['x']
+                                    env.missile.y = entities['missile']['y']
+                                    env.missile.heading = math.radians(-entities['missile']['angle'])
+                                    
+                                    # Extra parametreleri aktar
+                                    for ex in entities['plane'].get('extra', []):
+                                        if ex['name'] == 'Hız': env.plane.speed = ex['value']
+                                    for ex in entities['missile'].get('extra', []):
+                                        if ex['name'] == 'Motor Gücü': env.missile.thrust = ex['value']
+                                    
+                                    env.plane.vel_x = env.plane.speed * math.cos(env.plane.heading)
+                                    env.plane.vel_y = env.plane.speed * math.sin(env.plane.heading)
+                                    env.missile.vel_x = env.missile.speed * math.cos(env.missile.heading)
+                                    env.missile.vel_y = env.missile.speed * math.sin(env.missile.heading)
+                                    
+                                    current_obs = env._get_obs()
+                                except Exception as e:
+                                    print("Model Yüklenirken Hata Oluştu:", e)
+                                    is_playing = False
+                                
+                    elif btn_stop.collidepoint(event.pos):
+                        is_playing = False
+                        
+                    elif btn_reset.collidepoint(event.pos):
+                        is_playing = False
+                        if initial_entities_state:
+                            entities = copy.deepcopy(initial_entities_state)
+                            initial_entities_state = {} 
+
                     if btn_model.collidepoint(event.pos):
                         root = tk.Tk()
                         root.withdraw()
                         root.attributes('-topmost', True)
                         selected = filedialog.askopenfilename(
                             title="Model Dosyası Seç",
-                            filetypes=[
-                                ("Model dosyaları", "*.pt *.pth *.onnx *.h5 *.pkl *.bin"),
-                                ("Tüm dosyalar", "*.*")
-                            ]
+                            filetypes=[("Model dosyaları", "*.zip *.pt *.pth"), ("Tüm dosyalar", "*.*")]
                         )
                         root.destroy()
                         if selected:
-                            model_path = selected
+                            loaded_model_path = selected
                         continue
 
-                    # HUD field tıklama
                     clicked_hud = False
                     if dragging_type is None and HUD_TOP<=event.pos[1]<=HUD_BOT:
                         for rect, et, fkey, cur_val in hud_clickables:
@@ -605,7 +665,13 @@ def simulate_screen():
                         wx=(mouse_pos[0]-camera_x)/zoom
                         wy=(mouse_pos[1]-camera_y)/zoom
                         if dragging_type not in entities:
-                            entities[dragging_type]={'x':wx,'y':wy,'angle':current_drag_angle,'extra':[]}
+                            # Sadece GUI tarafı için varsayılan ekstra değerler
+                            default_extra = []
+                            if dragging_type == 'plane':
+                                default_extra = [{'name':'Hız', 'value':150.0}, {'name':'İrtifa', 'value':5000.0}]
+                            elif dragging_type == 'missile':
+                                default_extra = [{'name':'Motor Gücü', 'value':500.0}, {'name':'Yakıt', 'value':100.0}]
+                            entities[dragging_type]={'x':wx,'y':wy,'angle':current_drag_angle,'extra':default_extra}
                         else:
                             entities[dragging_type]['x']     = wx
                             entities[dragging_type]['y']     = wy
@@ -622,11 +688,10 @@ def simulate_screen():
                 dx=event.pos[0]-last_mouse_pos[0]; dy=event.pos[1]-last_mouse_pos[1]
                 camera_x+=dx; camera_y+=dy
 
-        # Scroll sınırını güncelle
         hud_scroll = max(0, min(MAX_SCROLL, hud_scroll))
-
         last_mouse_pos=mouse_pos
         pygame.display.update()
+        clock.tick(60)
 
 
 def _apply_edit(entities, active_edit):
