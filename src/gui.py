@@ -286,6 +286,9 @@ def simulate_screen():
     last_mouse_pos = pygame.mouse.get_pos()
     active_edit    = None   
 
+    # İzleri tutacak sözlük
+    trails = {'plane': [], 'missile': []}
+
     pn_message = ""
     pn_timer = 0
 
@@ -393,6 +396,17 @@ def simulate_screen():
             entities['missile']['x'] = float(env.missile.x)
             entities['missile']['y'] = float(env.missile.y)
             entities['missile']['angle'] = float(-math.degrees(float(env.missile.heading)))
+
+            # İzleri kaydet
+            for et in ['plane', 'missile']:
+                if et in entities:
+                    cx, cy = entities[et]['x'], entities[et]['y']
+                    if not trails[et]:
+                        trails[et].append((cx, cy))
+                    else:
+                        lx, ly = trails[et][-1]
+                        if math.hypot(cx - lx, cy - ly) > 10.0:
+                            trails[et].append((cx, cy))
             
             # 4. Stop simulation on hit or miss
             if terminated or truncated:
@@ -418,6 +432,16 @@ def simulate_screen():
         for wx in range(int(wl//50)*50, int(wr)+50, 50):
             sx=wx*zoom+camera_x
             pygame.draw.line(screen, (120,120,120) if wx%500==0 else (220,220,220), (sx,0),(sx,PANEL_H), 3 if wx%500==0 else 1)
+
+        # İzleri (noktaları) çiz
+        for et, points in trails.items():
+            color = (50, 150, 250) if et == 'plane' else (250, 80, 80)
+            dot_size = max(2, int(3 * zoom))
+            for px, py in points:
+                sx = px * zoom + camera_x
+                sy = py * zoom + camera_y
+                if -10 < sx < PANEL_X + 10 and -10 < sy < PANEL_H + 10:
+                    pygame.draw.circle(screen, color, (int(sx), int(sy)), dot_size)
 
         # ── NESNELER ──────────────────────────────────────────────────
         size=60*zoom
@@ -649,7 +673,7 @@ def simulate_screen():
                         _apply_edit(entities, active_edit)
                         active_edit = None
 
-                    # ── YENİ: PLAY BUTONU VE YAPAY ZEKAYI TETİKLEME ──
+                    # ── PLAY BUTONU VE YAPAY ZEKAYI TETİKLEME ──
                     if btn_play.collidepoint(event.pos) or btn_play_pn.collidepoint(event.pos):
                         if not is_playing:
                             if btn_play.collidepoint(event.pos) and not loaded_model_path:
@@ -660,8 +684,11 @@ def simulate_screen():
                                 is_playing = True
                                 play_mode = 'rl' if btn_play.collidepoint(event.pos) else 'pn'
                                 sim_result_timer = 0
-                                # Always take a fresh snapshot right before starting to catch any un-entered text field edits
                                 initial_entities_state = copy.deepcopy(entities)
+                                
+                                # İzleri temizle
+                                trails['plane'].clear()
+                                trails['missile'].clear()
                                 
                                 try:
                                     if play_mode == 'rl':
@@ -718,6 +745,11 @@ def simulate_screen():
                         is_playing = False
                         sim_result_timer = 0
                         camera_x, camera_y, zoom = 0.0, 0.0, 1.0
+                        
+                        # İzleri temizle
+                        trails['plane'].clear()
+                        trails['missile'].clear()
+                        
                         if initial_entities_state:
                             entities.clear()
                             entities.update(copy.deepcopy(initial_entities_state))
