@@ -4,11 +4,20 @@
 ---
 
 ## İçindekiler
+- [Demo Video](#demo-video)
 - [Kurulum](#kurulum)
 - [Kullanım](#kullanim)
 - [Proje Yapısı](#proje-yapısı)
 - [Teknik Özellikler](#teknik-özellikler)
 - [Katkılar](#katkılar)
+
+---
+
+## Demo Video
+> **GitHub'a Video Ekleme Bilgisi:** GitHub README içerisine doğrudan video embed etmek için videonuzu bir GitHub Issue / Pull Request içerik kutusuna sürükleyip bırakın. GitHub size bir `.mp4` linki üretecektir. Üretilen bu linki kullanarak videonuzu aşağıdaki gibi dökümana yerleştirebilirsiniz:
+> ```html
+> <video src="https://github.com/user-attachments/assets/SIZIN-VIDEO-ID" controls="controls" muted="muted" playsinline="playsinline" style="max-width: 100%;"></video>
+> ```
 
 ---
 
@@ -81,6 +90,12 @@ python src\main.py
 python3 src/main.py
 ```
 
+### Otomatik Test (Automated Benchmark)
+1. Uygulamayı çalıştırdığınızda terminalde size test çalıştırmak isteyip istemediğiniz sorulacaktır: `Do you want to run the automated benchmark? (Type a model name e.g. PPO_6M.zip, or press Enter to skip and launch GUI): `
+2. Eğitilmiş bir model adı (örneğin `PPO_6M.zip`) yazarsanız, yapay zeka arka planda arayüz oluşturulmadan 100 farklı rastgele kaçış senaryosunda test edilir.
+3. Test tamamlandığında isabet oranı ve simülasyon hesaplama süreleri terminale yazdırılır, ardından ana menü açılır.
+4. Bu testi atlamak ve doğrudan arayüze geçmek için doğrudan `Enter` tuşuna basabilirsiniz.
+
 ### Model Eğitimi
 1. Ana menüden "Train AI" seçeneğine tıklayın.
 2. Ekranda görmek istediğiniz "Total Steps" (Toplam Adım) miktarını belirleyin. Standart bir eğitim için 5,000,000 adım önerilir.
@@ -116,10 +131,10 @@ python-RLNN-Fuze-2026/
 ## Teknik Özellikler
 
 ### Fizik Motoru ve Ortam
-- **2D Dinamik Model:** Füze ve uçağın hız, ivme, itki ve sürtünme kuvvetleri üzerinden gerçekçi takibi. Sadece kinematik değil, kütle-sürtünme denklemleri çözümlenmektedir.
+- **2D Dinamik Model:** Füze ve uçağın hız, ivme, itki ve sürtünme kuvvetleri üzerinden gerçekçi takibi. Sadece kinematik değil, kütle-sürtünme denklemleri çözümlenmektedir. Simülasyon izleri (trail dots) arayüzde fiziksel mesafeye göre değil, doğrudan simülasyon zamanına (0.2 saniye aralıklarla) göre çizilerek görsel hız takibi ve ivmelenme gözlemi sağlar.
 - **Parametrik Rastgelelik:** Ağın genellenebilirliğini (generalization) artırmak için her iterasyonda füze kütlesi (50-120), hızı (350-550), itkisi, uçak hızı ve ağırlığı randomize edilir. Geometri de her seferinde yeniden kurgulanır.
-- **Kaçış Manevraları:** Hedef uçak eğitim boyunca sabit uçuş, dar dairesel loiter ve yüksek-G harmonik (sinusoidal) kaçış olmak üzere üç farklı davranış kalıbı sergiler.
-- **Fizibilite Filtresi (Feasibility Test):** Eğitim ortamı oluşturulurken geometri, klasik oransal yönlendirme formülü ile matematiksel olarak arka planda test edilir. Sadece füzenin teorik olarak yetişebileceği "fizibl" geometriler yapay zekaya sunulur. Yakalanamaz durumlar `tail_chase_failure` gibi optimizasyonlarla başlangıçta filtrelenir.
+- **Kaçış Manevraları:** Hedef uçak eğitim boyunca sabit uçuş, dar dairesel loiter ve yüksek-G harmonik (sinusoidal) kaçış olmak üzere üç farklı davranış kalıbı sergiler. `sin(t)*cos(t)*2` gibi matematiksel metin formülleri GUI editörüne doğrudan yazılıp motor tarafından parse edilip simüle edilebilir.
+- **Fizibilite Filtresi (Feasibility Test):** Eğitim ortamı oluşturulurken veya arayüzden CHECK PN butonuna basıldığında geometri, uçak kaçış manevrası hesaba katılarak matematiksel olarak arka planda test edilir. Yakalanamaz durumlar `tail_chase_failure` (fiziksel olarak hedefin 120 derecelik arka konisinde aynı yöne bakarak yakalanma durumu) gibi gelişmiş uzaysal kontrollerle filtrelenir. Sadece füzenin teorik olarak yetişebileceği "uygun" geometriler yapay zekaya sunulur.
 
 ### Pekiştirmeli Öğrenme (Reinforcement Learning) Mimarisi
 - **Algoritma:** PyTorch tabanlı Stable-Baselines3 kütüphanesi üzerinden `PPO` (Proximal Policy Optimization) kullanılmıştır.
@@ -127,7 +142,7 @@ python-RLNN-Fuze-2026/
   1. `Görüş Hattı Hızı (LOS Rate)`
   2. `Yaklaşma Hızı (Closing Velocity - Vc)`
 - **Ödül Fonksiyonu (Reward Function):** İki boyutlu girdi avantajı sayesinde, sistem hedefe yaklaşmayı ödüllendiren (dense reward) ve gecikmeyi cezalandıran basit bir yapıya oturtulmuştur. Ağ, Pure Pursuit (Saf Takip) tuzağına düşmeden Oransal Yönlendirme davranışını kendiliğinden keşfetmektedir.
-- **Paralelizasyon:** Eğitim verimini ve veri akışını maksimize etmek adına `SubprocVecEnv` kullanılarak CPU üzerinde 16 paralel environment aynı anda işlenir.
+- **Paralelleştirme:** Eğitim verimini ve veri akışını maksimize etmek adına `SubprocVecEnv` kullanılarak CPU üzerinde 16 paralel environment aynı anda işlenir.
 
 ---
 

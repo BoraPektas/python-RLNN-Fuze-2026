@@ -446,17 +446,15 @@ def simulate_screen():
             entities['missile']['y'] = float(env.missile.y)
             entities['missile']['angle'] = float(-math.degrees(float(env.missile.heading)))
 
-            # İzleri (Trail) kaydet
-            for et in ['plane', 'missile']:
-                if et in entities:
-                    cx, cy = entities[et]['x'], entities[et]['y']
-                    if not trails[et]:
-                        trails[et].append((cx, cy))
-                    else:
-                        # Performans Optimizasyonu: Sadece >10 birim fark varsa kaydet
-                        lx, ly = trails[et][-1]
-                        if math.hypot(cx - lx, cy - ly) > 10.0:
-                            trails[et].append((cx, cy))
+            # İzleri kaydet (Zaman tabanlı, eşit aralıklı noktalar hız gösterir)
+            if not hasattr(env, 'last_trail_time'):
+                env.last_trail_time = env.sim_time - 0.2
+            
+            if env.sim_time - env.last_trail_time >= 0.2:
+                for et in ['plane', 'missile']:
+                    if et in entities:
+                        trails[et].append((entities[et]['x'], entities[et]['y']))
+                env.last_trail_time = env.sim_time
             
             # Hedefin vurulması (Terminated) veya kaçırılması/süresi dolması (Truncated) kontrolü
             if terminated or truncated:
@@ -827,7 +825,7 @@ def simulate_screen():
                                 p_data = entities['plane']
                                 m_data = entities['missile']
                                 
-                                p_speed = 150.0; p_mass = 500.0; p_thrust = 200.0; p_drag = 0.01
+                                p_speed = 150.0; p_mass = 500.0; p_thrust = 200.0; p_drag = 0.01; p_ctrl = "0.0"
                                 m_speed = 100.0; m_mass = 100.0; m_thrust = 500.0; m_drag = 0.005; m_rot = 0.5
                                 
                                 for ex in p_data.get('extra', []):
@@ -835,6 +833,9 @@ def simulate_screen():
                                     elif ex['name'] == 'Mass': p_mass = float(ex['value'])
                                     elif ex['name'] == 'Thrust': p_thrust = float(ex['value'])
                                     elif ex['name'] == 'Drag': p_drag = float(ex['value'])
+                                    elif ex['name'] == 'Control': p_ctrl = str(ex['value'])
+                                    
+                                temp_env.set_plane_control(p_ctrl)
                                     
                                 for ex in m_data.get('extra', []):
                                     if ex['name'] == 'Thrust': m_thrust = float(ex['value'])
