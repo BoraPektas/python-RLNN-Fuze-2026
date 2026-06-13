@@ -161,4 +161,4 @@ Projeyi geliştirirken kullandığımız temel kütüphaneler ve görevleri şun
 ---
 
 ## Lisans
-MIT License (bkz. LICENSE dosyası)
+GPL V3 License (bkz. LICENSE dosyası)
