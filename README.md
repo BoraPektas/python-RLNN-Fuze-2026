@@ -13,12 +13,8 @@
 
 ---
 
-## Demo Video
-> **GitHub'a Video Ekleme Bilgisi:** GitHub README içerisine doğrudan video embed etmek için videonuzu bir GitHub Issue / Pull Request içerik kutusuna sürükleyip bırakın. GitHub size bir `.mp4` linki üretecektir. Üretilen bu linki kullanarak videonuzu aşağıdaki gibi dökümana yerleştirebilirsiniz:
-> ```html
-> <video src="https://github.com/user-attachments/assets/SIZIN-VIDEO-ID" controls="controls" muted="muted" playsinline="playsinline" style="max-width: 100%;"></video>
-> ```
-
+## Çalıştırma Videosu
+https://github.com/user-attachments/assets/93c69f1f-036a-48d8-ba97-3ded5259d6d3
 ---
 
 ## Kurulum
