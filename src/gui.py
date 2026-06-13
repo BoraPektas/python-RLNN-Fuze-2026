@@ -446,17 +446,15 @@ def simulate_screen():
             entities['missile']['y'] = float(env.missile.y)
             entities['missile']['angle'] = float(-math.degrees(float(env.missile.heading)))
 
-            # İzleri (Trail) kaydet
-            for et in ['plane', 'missile']:
-                if et in entities:
-                    cx, cy = entities[et]['x'], entities[et]['y']
-                    if not trails[et]:
-                        trails[et].append((cx, cy))
-                    else:
-                        # Performans Optimizasyonu: Sadece >10 birim fark varsa kaydet
-                        lx, ly = trails[et][-1]
-                        if math.hypot(cx - lx, cy - ly) > 10.0:
-                            trails[et].append((cx, cy))
+            # İzleri kaydet (Zaman tabanlı, eşit aralıklı noktalar hız gösterir)
+            if not hasattr(env, 'last_trail_time'):
+                env.last_trail_time = env.sim_time - 0.2
+            
+            if env.sim_time - env.last_trail_time >= 0.2:
+                for et in ['plane', 'missile']:
+                    if et in entities:
+                        trails[et].append((entities[et]['x'], entities[et]['y']))
+                env.last_trail_time = env.sim_time
             
             # Hedefin vurulması (Terminated) veya kaçırılması/süresi dolması (Truncated) kontrolü
             if terminated or truncated:
