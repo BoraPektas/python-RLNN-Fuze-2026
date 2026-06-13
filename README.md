@@ -1,4 +1,4 @@
-## RLNN-Fuze-2026
+## python-RLNN-Fuze-2026
 2025-2026 Dönemi Python Programlamaya Giriş Dersi: Pekiştirmeli Öğrenme Sinir Ağlı Güdümlü Füze.
 
 ---
@@ -16,8 +16,8 @@
 
 ### 1. Repo'yu Klonlayın
 ```bash
-git clone https://github.com/BoraPektas/RLNN-Fuze-2026.git
-cd RLNN-Fuze-2026
+git clone https://github.com/BoraPektas/python-RLNN-Fuze-2026.git
+cd python-RLNN-Fuze-2026
 ```
 
 ### 2. Sanal Ortamı Kurun
