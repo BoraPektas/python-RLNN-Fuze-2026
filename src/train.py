@@ -1,11 +1,10 @@
 # train.py
 import argparse
-import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
-# Kendi yazdığınız özel füze ortamını içeri aktarıyoruz
+# Import our custom missile environment
 from environment import MissileEnv
 
 import json
@@ -49,9 +48,9 @@ def main():
     parser.add_argument("save_path", nargs="?", default="missile_ppo_model", help="Path to save the trained model")
     args = parser.parse_args()
 
-    # 1. Kendi yazdığımız Füze Ortamını (Environment) başlatıyoruz
-    # render_mode=None: Eğitim sırasında optimized (imkansız ortamlar yok)
-    # Parallellization: We spin up 16 parallel CPU environments to massively increase data throughput to the GPU!
+    # 1. Initialize the Custom Missile Environment
+    # render_mode=None: Optimized for training (no GUI overhead)
+    # Parallelization: We spin up 16 parallel CPU environments to massively increase data throughput to the GPU!
     num_envs = 16
     try:
         env = SubprocVecEnv([make_env(i) for i in range(num_envs)], start_method='spawn')
@@ -59,9 +58,9 @@ def main():
         # Fallback if spawn fails on some systems
         env = SubprocVecEnv([make_env(i) for i in range(num_envs)])
 
-    # 2. PyTorch tabanlı PPO algoritmasını bu ortama göre hazırlıyoruz
-    # "MlpPolicy" arka planda PyTorch sinir ağını otomatik oluşturur.
-    # Füzenin hareket alanı (action_space) sürekli (continuous) olduğu için PPO çok uygundur.
+    # 2. Configure the PyTorch-based PPO Algorithm
+    # "MlpPolicy" automatically creates a standard feedforward neural network.
+    # PPO is highly effective for continuous action spaces like missile steering.
     model = PPO(
         "MlpPolicy",
         env,

@@ -16,7 +16,7 @@ try:
     from stable_baselines3 import PPO
     from environment import MissileEnv
 except ImportError:
-    print("Uyarı: stable_baselines3 veya environment modülü bulunamadı. Simülasyon başlatılamayabilir.")
+    print("Warning: stable_baselines3 or environment module not found. Simulation may not start.")
 
 pygame.init()
 
@@ -91,7 +91,7 @@ def train_screen():
     btn_start_train = pygame.Rect(bx, 280, btn_w, btn_h)
     btn_back        = pygame.Rect(bx, 420, btn_w, btn_h)
     
-    status_message = "Bekleniyor..."
+    status_message = "Waiting..."
     status_color = (50, 50, 150)
 
     is_training = False
@@ -121,7 +121,7 @@ def train_screen():
         pygame.draw.rect(screen, (30, 30, 30), box_rect, 2, border_radius=5)
         draw_text(f"Steps: {train_steps_text}", text_font, (20, 20, 20), screen, box_rect.centerx, box_rect.centery)
 
-        draw_text(f"Durum: {status_message}", small_font, status_color, screen, 500, 520)
+        draw_text(f"Status: {status_message}", small_font, status_color, screen, 500, 520)
 
         # ─── YÜKLEME BARI (PROGRESS BAR) ANİMASYONU ───
         if is_training:
@@ -142,7 +142,7 @@ def train_screen():
                         data = json.load(f)
                         step = data.get("step", 0)
                         total = max(1, data.get("total", 1))
-                        progress_value = (step / total) * 100
+                        progress_value = min(100.0, (step / total) * 100)
                         fps = data.get("fps", 0)
                         rew = data.get("rew", 0.0)
                         draw_text(f"Step: {step}/{total} | FPS: {fps} | Reward: {rew:.1f}", small_font, (220, 220, 220), screen, 500, bar_y - 20)
@@ -193,8 +193,10 @@ def train_screen():
                         root.withdraw()
                         root.attributes('-topmost', True)
                         
+                        import os
                         save_path = filedialog.asksaveasfilename(
                             title="Where to save the model? (.zip)",
+                            initialdir=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models")),
                             defaultextension=".zip",
                             filetypes=[("Zip Files", "*.zip"), ("All Files", "*.*")]
                         )
@@ -802,9 +804,11 @@ def simulate_screen():
                         root = tk.Tk()
                         root.withdraw()
                         root.attributes('-topmost', True)
+                        import os
                         selected = filedialog.askopenfilename(
-                            title="Model Dosyası Seç",
-                            filetypes=[("Model dosyaları", "*.zip *.pt *.pth"), ("Tüm dosyalar", "*.*")]
+                            title="Select Model File",
+                            initialdir=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models")),
+                            filetypes=[("Model files", "*.zip *.pt *.pth"), ("All files", "*.*")]
                         )
                         root.destroy()
                         if selected:

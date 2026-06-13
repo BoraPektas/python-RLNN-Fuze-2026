@@ -1,7 +1,7 @@
 # environment.py contains the 2D physics engine and the Reinforcement Learning environment.
-# It is configured for the "True PN Architecture", explicitly providing the AI with processed
-# seeker variables (LOS Rate, Closing Velocity, Distance, Missile Speed) and using
-# Imitation Learning to enforce Proportional Navigation.
+# It explicitly provides the AI with pure Proportional Navigation variables
+# (LOS Rate, Closing Velocity) and uses a dense distance-closing reward
+# to encourage natural intercept learning without imitation.
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -129,8 +129,8 @@ class MissileEnv(gym.Env):
 
         # 2. OBSERVATION SPACE (What the AI can see)
         # We explicitly provide the processed kinematic variables necessary for Proportional Navigation:
-        # [distance_norm, closing_velocity_norm, los_rate_norm, missile_speed_norm]
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32)
+        # [los_rate_norm, closing_velocity_norm]
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32)
         # Plane control: can be set via `set_plane_control` to a number, callable(t)->rotate, or string expression using `t`.
         self.plane_control_callable = None
         self._plane_control_code = None
@@ -154,11 +154,8 @@ class MissileEnv(gym.Env):
             feasible = False
 
             for _ in range(max_attempts):
-                # Geometry: Curriculum Learning (30% chance for easy near-spawn to solve sparse rewards)
-                if np.random.rand() < 0.3:
-                    distance = np.random.uniform(300.0, 1000.0)
-                else:
-                    distance = np.random.uniform(1000.0, 3500.0)
+                # Geometry: Random spawning distance
+                distance = np.random.uniform(1000.0, 3500.0)
                 angle = np.random.uniform(-np.pi, np.pi)
                 plane_x = missile_x + distance * np.cos(angle)
                 plane_y = missile_y + distance * np.sin(angle)
@@ -382,7 +379,10 @@ class MissileEnv(gym.Env):
                 heading_error = (plane.heading - missile.heading + np.pi) % (2 * np.pi) - np.pi
                 if abs(heading_error) < np.radians(15):
                     if missile.speed - plane.speed < 5.0:
-                        return False
+                        accel = (missile.thrust - missile.drag * (missile.speed**2)) / missile.mass
+                        future_speed = missile.speed + accel * 4.0
+                        if future_speed - plane.speed < 5.0:
+                            return False
 
             return False
         except Exception:
@@ -442,12 +442,20 @@ class MissileEnv(gym.Env):
             
             # Dynamic Tail Chase Failure Condition
             heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
-            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0)
+            
+            accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
+            future_speed = self.missile.speed + accel * 4.0
+            
+            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
             
             truncated = bool(miss_condition or boundary_condition or tail_chase_failure)
         else:
             heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
-            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0)
+            
+            accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
+            future_speed = self.missile.speed + accel * 4.0
+            
+            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
             
             truncated = bool(distance > max_distance_limit or miss_condition or tail_chase_failure)
 
@@ -483,20 +491,14 @@ class MissileEnv(gym.Env):
         vc = -(dx * dvx + dy * dvy) / (distance + 1e-6)
 
         # TRUE MISSILE OBSERVATIONS (Processed variables for Proportional Navigation)
-        # 1. Distance
-        distance_norm = np.clip(distance / 5000.0, 0.0, 1.0)
+        # 1. Line of Sight Rate (LOS Rate)
+        los_rate_norm = np.clip(los_rate, -1.0, 1.0)
         # 2. Closing Velocity (Vc)
         vc_norm = np.clip(vc / 500.0, -1.0, 1.0)
-        # 3. Line of Sight Rate (LOS Rate)
-        los_rate_norm = np.clip(los_rate, -1.0, 1.0)
-        # 4. Missile Speed
-        speed_norm = np.clip(self.missile.speed / 500.0, 0.0, 1.5)
 
         obs = np.array([
-            distance_norm,          
-            vc_norm,          
             los_rate_norm,       
-            speed_norm
+            vc_norm
         ], dtype=np.float32)
         
         return obs
@@ -510,21 +512,12 @@ class MissileEnv(gym.Env):
         if action is None:
             return 0.0
 
-        dx = self.plane.x - self.missile.x
-        dy = self.plane.y - self.missile.y
-        dvx = self.plane.vel_x - self.missile.vel_x
-        dvy = self.plane.vel_y - self.missile.vel_y
-
-        distance_sq = distance**2
-        los_rate = (dx * dvy - dy * dvx) / (distance_sq + 1e-6)
-        vc = -(dx * dvx + dy * dvy) / (distance + 1e-6)
-
-        # 1. Imitation Learning: Calculate the perfect PN command
-        N = 4.0
-        ideal_turn_rate = N * (max(vc, 0.0) / self.missile.speed) * los_rate
-        ideal_action = np.clip(ideal_turn_rate / self.missile.max_rotate, -1.0, 1.0)
+        # Proper Training Evaluation
+        # Dense reward for getting closer to the target
+        progress = self.previous_distance - distance
+        getting_close_reward = progress * 0.1
         
-        # 2. Explicitly punish deviation
-        imitation_penalty = -5.0 * abs(float(action[0]) - ideal_action)
-
-        return float(imitation_penalty)
+        # Small time penalty to encourage fast interceptions
+        time_penalty = -0.1
+        
+        return getting_close_reward + time_penalty
