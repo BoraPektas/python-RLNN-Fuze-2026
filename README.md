@@ -1,5 +1,5 @@
 ## RLNN-Fuze-2026
-2026-2027 Dönemi Python Programlamaya Giriş Dersi: Pekiştirmeli Öğrenme Sinir Ağlı Güdümlü Füze.
+2025-2026 Dönemi Python Programlamaya Giriş Dersi: Pekiştirmeli Öğrenme Sinir Ağlı Güdümlü Füze.
 
 ---
 
@@ -23,14 +23,18 @@ cd RLNN-Fuze-2026
 ### 2. Sanal Ortamı Kurun
 
 **Windows:**
-1. Python 3.12.9'u indirin. Otomatik PATH kaydı oluştuğundan emin olun.
+1. Python 3.12.9'u indirin. Kurulum sırasında "Add Python to PATH" seçeneğini işaretlediğinizden emin olun. Eğer bilgisayarınızda birden fazla Python sürümü varsa, spesifik olarak 3.12 kullanmak için Py Launcher (`py`) kullanacağız.
 2. Sanal ortamı oluşturun:
    ```bash
-   python -m venv venv
+   py -3.12 -m venv venv
    ```
 3. Sanal ortamı aktifleştirin:
    ```bash
    .\venv\Scripts\activate
+   ```
+4. Sanal ortamın doğru sürümle açıldığını teyit edin:
+   ```bash
+   python --version
    ```
 
 **Linux / macOS:**
@@ -124,6 +128,17 @@ python-RLNN-Fuze-2026/
   2. `Yaklaşma Hızı (Closing Velocity - Vc)`
 - **Ödül Fonksiyonu (Reward Function):** İki boyutlu girdi avantajı sayesinde, sistem hedefe yaklaşmayı ödüllendiren (dense reward) ve gecikmeyi cezalandıran basit bir yapıya oturtulmuştur. Ağ, Pure Pursuit (Saf Takip) tuzağına düşmeden Oransal Yönlendirme davranışını kendiliğinden keşfetmektedir.
 - **Paralelizasyon:** Eğitim verimini ve veri akışını maksimize etmek adına `SubprocVecEnv` kullanılarak CPU üzerinde 16 paralel environment aynı anda işlenir.
+
+---
+
+## Kullanılan Kütüphaneler ve Teknolojiler
+Projeyi geliştirirken kullandığımız temel kütüphaneler ve görevleri şunlardır:
+
+- **PyTorch (`torch`)**: Tüm yapay zeka modelinin (PPO) arka planında hesaplamaları ve optimizasyonları (tensor işlemleri, geri yayılım) yapan temel Derin Öğrenme kütüphanesidir.
+- **Stable-Baselines3 (`stable_baselines3`)**: PPO (Proximal Policy Optimization) takviyeli öğrenme algoritmasının güvenilir ve güncel implementasyonunu sağlar. Model mimarisi ve çoklu işlem (multiprocessing) altyapısı buradan çekilmiştir.
+- **Gymnasium (`gymnasium`)**: Kendi yazdığımız 2D fizik motorumuzu (`MissileEnv`), RL algoritmalarının anlayabileceği evrensel standartlara oturtmak için kullandığımız RL ortamı framework'üdür.
+- **Pygame (`pygame`)**: Projenin tamamen interaktif olan Grafik Kullanıcı Arayüzünü (GUI) yönetir. Ana menülerden, eğitim sırasındaki canlı yükleme barına ve 2 boyutlu uzaysal simülasyonun ekrana çizilmesine kadar her türlü görsel render işlemi bu kütüphaneyle yapılmıştır.
+- **NumPy (`numpy`)**: Fizik motoru içindeki ağır matematiksel yükü üstlenir. Trigonometrik manevra hesaplamaları (sin, cos, radyan dönüşümleri), hız vektörlerinin izdüşümü ve yapay zekaya sunulan çok boyutlu tensor verilerinin hızlıca işlenmesi için kullanılmıştır.
 
 ---
 
