@@ -827,7 +827,7 @@ def simulate_screen():
                                 p_data = entities['plane']
                                 m_data = entities['missile']
                                 
-                                p_speed = 150.0; p_mass = 500.0; p_thrust = 200.0; p_drag = 0.01
+                                p_speed = 150.0; p_mass = 500.0; p_thrust = 200.0; p_drag = 0.01; p_ctrl = "0.0"
                                 m_speed = 100.0; m_mass = 100.0; m_thrust = 500.0; m_drag = 0.005; m_rot = 0.5
                                 
                                 for ex in p_data.get('extra', []):
@@ -835,6 +835,9 @@ def simulate_screen():
                                     elif ex['name'] == 'Mass': p_mass = float(ex['value'])
                                     elif ex['name'] == 'Thrust': p_thrust = float(ex['value'])
                                     elif ex['name'] == 'Drag': p_drag = float(ex['value'])
+                                    elif ex['name'] == 'Control': p_ctrl = str(ex['value'])
+                                    
+                                temp_env.set_plane_control(p_ctrl)
                                     
                                 for ex in m_data.get('extra', []):
                                     if ex['name'] == 'Thrust': m_thrust = float(ex['value'])

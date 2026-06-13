@@ -337,6 +337,7 @@ class MissileEnv(gym.Env):
             missile_start_y = missile.y
 
             steps = int(max_time / dt)
+            sim_time = 0.0
             for _ in range(steps):
                 dx = plane.x - missile.x
                 dy = plane.y - missile.y
@@ -363,26 +364,53 @@ class MissileEnv(gym.Env):
                 desired_turn_rate = np.clip(desired_turn_rate, -missile.max_rotate, missile.max_rotate)
                 action = np.array([desired_turn_rate / missile.max_rotate], dtype=np.float32)
 
+                rotate = 0.0
+                try:
+                    if self.plane_control_callable is not None:
+                        rotate = float(self.plane_control_callable(sim_time))
+                    elif self._plane_control_code is not None:
+                        safe_globals = {
+                            "__builtins__": None,
+                            "np": np,
+                            "sin": np.sin,
+                            "cos": np.cos,
+                            "tan": np.tan,
+                            "pi": np.pi,
+                            "t": sim_time,
+                        }
+                        rotate = float(eval(self._plane_control_code, safe_globals, {}))
+                except Exception:
+                    rotate = 0.0
+
                 missile.update(action)
-                plane.update(rotate=0.0)
+                plane.update(rotate=rotate)
+                sim_time += dt
 
                 distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
                 if distance < 40.0:
                     return True
 
-                # OPTIMIZATION: Feasibility step uses expanded 3000 boundary
-                if distance > max(4500.0, initial_distance * 1.3):
+                # EXACT SAME TRUNCATION LOGIC AS STEP()
+                missile_dist_from_start = np.hypot(missile.x - missile_start_x, missile.y - missile_start_y)
+                plane_dist_from_missile_start = np.hypot(plane.x - missile_start_x, plane.y - missile_start_y)
+                if missile_dist_from_start > (1.2 * plane_dist_from_missile_start):
+                    return False
+                    
+                if distance > max(4800.0, initial_distance * 1.4):
                     return False
                     
                 # Dynamic Tail Chase Failure Condition
-                # If they are going about the same heading, and the missile is no longer significantly faster
                 heading_error = (plane.heading - missile.heading + np.pi) % (2 * np.pi) - np.pi
-                if abs(heading_error) < np.radians(15):
-                    if missile.speed - plane.speed < 5.0:
-                        accel = (missile.thrust - missile.drag * (missile.speed**2)) / missile.mass
-                        future_speed = missile.speed + accel * 4.0
-                        if future_speed - plane.speed < 5.0:
-                            return False
+                
+                angle_to_missile = np.arctan2(missile.y - plane.y, missile.x - plane.x)
+                rel_angle = (angle_to_missile - plane.heading + np.pi) % (2 * np.pi) - np.pi
+                in_tail_cone = abs(rel_angle) > np.radians(120)
+                
+                accel = (missile.thrust - missile.drag * (missile.speed**2)) / missile.mass
+                future_speed = missile.speed + accel * 4.0
+                
+                if in_tail_cone and abs(heading_error) < np.radians(15) and (missile.speed - plane.speed < 5.0) and (future_speed - plane.speed < 5.0):
+                    return False
 
             return False
         except Exception:
@@ -443,19 +471,27 @@ class MissileEnv(gym.Env):
             # Dynamic Tail Chase Failure Condition
             heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
             
+            angle_to_missile = np.arctan2(self.missile.y - self.plane.y, self.missile.x - self.plane.x)
+            rel_angle = (angle_to_missile - self.plane.heading + np.pi) % (2 * np.pi) - np.pi
+            in_tail_cone = abs(rel_angle) > np.radians(120)
+            
             accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
             future_speed = self.missile.speed + accel * 4.0
             
-            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
+            tail_chase_failure = in_tail_cone and abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
             
             truncated = bool(miss_condition or boundary_condition or tail_chase_failure)
         else:
             heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
             
+            angle_to_missile = np.arctan2(self.missile.y - self.plane.y, self.missile.x - self.plane.x)
+            rel_angle = (angle_to_missile - self.plane.heading + np.pi) % (2 * np.pi) - np.pi
+            in_tail_cone = abs(rel_angle) > np.radians(120)
+            
             accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
             future_speed = self.missile.speed + accel * 4.0
             
-            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
+            tail_chase_failure = in_tail_cone and abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
             
             truncated = bool(distance > max_distance_limit or miss_condition or tail_chase_failure)
 
