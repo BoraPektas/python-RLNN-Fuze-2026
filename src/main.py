@@ -5,10 +5,70 @@ main.py: Project entry point — Launches the GUI only.
 """
 import sys
 import os
+import time
+
+def run_benchmark_if_model_exists():
+    # Try to find a default model to benchmark
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(base_dir, "..", "models", "PPO_6M.zip")
+    if not os.path.exists(model_path):
+        model_path = os.path.join(base_dir, "PPO_6M.zip")
+        if not os.path.exists(model_path):
+            return # No model found, just skip silently
+            
+    try:
+        from stable_baselines3 import PPO
+        from environment import MissileEnv
+        
+        print("\n" + "="*50)
+        print(f"  AUTOMATED BENCHMARK (100 EPISODES)")
+        print(f"  Model: {os.path.basename(model_path)}")
+        print("="*50)
+        print("Loading model and testing 100 random evasive environments headless. Please wait...")
+        
+        # Suppress SB3 warnings about CPU for cleaner console
+        import warnings
+        warnings.filterwarnings("ignore")
+        
+        model = PPO.load(model_path, device="cpu")
+        env = MissileEnv(render_mode=None)
+        
+        hits = 0
+        total_time = 0.0
+        
+        start_t = time.time()
+        for i in range(100):
+            obs, info = env.reset()
+            done = False
+            steps = 0
+            while not done:
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, term, trunc, info = env.step(action)
+                done = term or trunc
+                steps += 1
+                
+            if term:
+                hits += 1
+                total_time += (steps * env.dt)
+                
+        print("\n--- BENCHMARK RESULTS ---")
+        print(f"Total Episodes       : 100")
+        print(f"Overall Hit Rate     : {hits}%")
+        if hits > 0:
+            print(f"Avg Interception Time: {total_time/hits:.2f} seconds")
+        print(f"Computation Time     : {time.time() - start_t:.2f}s")
+        print("="*50 + "\n")
+        
+    except Exception as e:
+        print(f"\n[Benchmark Warning] Could not complete automated test: {e}\n")
+
 
 if __name__ == "__main__":
-    # Add src to python path if run from root
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    
+    # Run the 100-episode headless test before starting GUI
+    run_benchmark_if_model_exists()
+    
     try:
         from gui import main_menu
         print("GUI Starting...")
