@@ -87,8 +87,7 @@ python3 src/main.py
 1. Ana menüden "Simulation" seçeneğine tıklayın.
 2. Sağ menüden "Load Model" seçeneği ile eğitmiş olduğunuz bir .zip modelini seçin.
 3. Ekranda uçak ve füze konumlarını sürükleyerek veya açılarını döndürerek başlangıç geometrisini ayarlayın.
-4. "PLAY RLNN" butonuna basarak yapay zekanın performansını izleyebilir, veya "PLAY PN" butonuna basarak yapay zekayı geleneksel Oransal Yönlendirme (Proportional Navigation) algoritması ile kıyaslayabilirsiniz.
-*(Not: Simülasyon kullanımı ve performans kıyaslamaları hakkında daha fazla detay akademik raporumuzda yer almaktadır.)*
+4. "PLAY" butonuna basarak yapay zekanın performansını izleyebilir, veya "PLAY PN" butonuna basarak yapay zekayı geleneksel Oransal Yönlendirme (Proportional Navigation) algoritması ile kıyaslayabilirsiniz.
 
 ---
 
@@ -121,9 +120,9 @@ python-RLNN-Fuze-2026/
 ### Pekiştirmeli Öğrenme (Reinforcement Learning) Mimarisi
 - **Algoritma:** PyTorch tabanlı Stable-Baselines3 kütüphanesi üzerinden `PPO` (Proximal Policy Optimization) kullanılmıştır.
 - **Girdi Uzayı (Observation Space):** Ağ, Kartezyen koordinat sisteminden tamamen izole edilmiştir. Sadece Oransal Yönlendirme mantığı için kritik olan iki parametreyi girdi olarak alır:
-  1. `Görüş Hattı Oranı (LOS Rate)`
-  2. `Kapanma Hızı (Closing Velocity - Vc)`
-- **Ödül Fonksiyonu (Reward Function):** Saf RL hedeflenerek imitasyon öğrenmesi kullanılmamıştır. İki boyutlu girdi avantajı sayesinde, sistem hedefe yaklaşmayı ödüllendiren (dense reward) ve gecikmeyi cezalandıran basit bir yapıya oturtulmuştur. Ağ, Pure Pursuit (Saf Takip) tuzağına düşmeden Oransal Yönlendirme davranışını kendiliğinden keşfetmektedir.
+  1. `Görüş Hattı Hızı (LOS Rate)`
+  2. `Yaklaşma Hızı (Closing Velocity - Vc)`
+- **Ödül Fonksiyonu (Reward Function):** İki boyutlu girdi avantajı sayesinde, sistem hedefe yaklaşmayı ödüllendiren (dense reward) ve gecikmeyi cezalandıran basit bir yapıya oturtulmuştur. Ağ, Pure Pursuit (Saf Takip) tuzağına düşmeden Oransal Yönlendirme davranışını kendiliğinden keşfetmektedir.
 - **Paralelizasyon:** Eğitim verimini ve veri akışını maksimize etmek adına `SubprocVecEnv` kullanılarak CPU üzerinde 16 paralel environment aynı anda işlenir.
 
 ---
