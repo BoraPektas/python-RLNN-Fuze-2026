@@ -1,18 +1,18 @@
 ## RLNN-Fuze-2026
-2026-2027 Dönemi Python Programlamaya Giriş Dersi: Pekiştirme Öğrenmeli Sinir Ağlı Güdümlü Füze.
+2026-2027 Dönemi Python Programlamaya Giriş Dersi: Pekiştirmeli Öğrenme Sinir Ağlı Güdümlü Füze.
 
 ---
 
-## 📋 İçindekiler
-- [Kurmak](#kurmak)
-- [Çalıştırma](#çalıştırma)
+## İçindekiler
+- [Kurulum](#kurulum)
+- [Kullanım](#kullanim)
 - [Proje Yapısı](#proje-yapısı)
-- [Özellikler](#özellikler)
-- [Geliştirme Notları](#geliştirme-notları)
+- [Teknik Özellikler](#teknik-özellikler)
+- [Katkılar](#katkılar)
 
 ---
 
-## 🛠️ Kurmak
+## Kurulum
 
 ### 1. Repo'yu Klonlayın
 ```bash
@@ -20,10 +20,10 @@ git clone https://github.com/BoraPektas/RLNN-Fuze-2026.git
 cd RLNN-Fuze-2026
 ```
 
-### 2. Sanal Ortam'ı Kurun
+### 2. Sanal Ortamı Kurun
 
 **Windows:**
-1. [Python 3.12.9](https://www.python.org/downloads/release/python-3129/)'u indirin. Otomatik PATH kaydı oluştuğundan emin olun
+1. Python 3.12.9'u indirin. Otomatik PATH kaydı oluştuğundan emin olun.
 2. Sanal ortamı oluşturun:
    ```bash
    python -m venv venv
@@ -34,18 +34,24 @@ cd RLNN-Fuze-2026
    ```
 
 **Linux / macOS:**
-1. En güncel olmayan 3.12.9 sürümü kullanıldığı için [pyenv](https://github.com/pyenv/pyenv) gibi bir versiyon aracı ile bilgisayarınıza Python 3.12.9 kurun.
-2. Sanal ortamı oluşturun:
+1. pyenv gibi bir versiyon aracı ile bilgisayarınıza Python 3.12.9 kurun.
+2. Shell üzerinde 3.12.9 sürümünü aktifleştirin ve doğrulayın:
    ```bash
-   python -m venv venv
+   pyenv shell 3.12.9
+   python3 --version
    ```
-3. Sanal ortamı aktifleştirin:
+3. Sanal ortamı oluşturun:
+   ```bash
+   python3 -m venv venv
+   ```
+4. Sanal ortamı aktifleştirin:
    ```bash
    source venv/bin/activate
    ```
-4. xclip'i indirin (clipboard desteği için):
-   - Debian: `sudo apt-get install xclip`
-   - Arch: `sudo pacman -S xclip`
+5. Pano (clipboard) desteği için xclip'i indirin:
+   - Debian/Ubuntu: `sudo apt-get install xclip`
+   - Arch Linux: `sudo pacman -S xclip`
+   - Fedora: `sudo dnf install xclip`
 
 ### 3. Gerekli Kütüphaneleri Kurun
 ```bash
@@ -55,140 +61,78 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Çalıştırma
+## Kullanım
 
-### Grafik Arayüzü (GUI) Başlat
+Bu proje tamamen Grafik Kullanıcı Arayüzü (GUI) üzerinden yönetilmektedir. Doğrudan CLI komutlarına ihtiyaç yoktur.
+
+Arayüzü başlatmak için:
+
+**Windows:**
 ```bash
-cd src
-python main.py
-```
-veya doğrudan:
-```bash
-cd src
-python main.py --gui
+python src\main.py
 ```
 
-### Eğitim Başlat
+**Linux / macOS:**
 ```bash
-cd src
-python main.py --train
+python3 src/main.py
 ```
 
-Eğitim sonrası test adımını atlamak için:
-```bash
-cd src
-python main.py --train --skip-test
-```
+### Model Eğitimi
+1. Ana menüden "Train AI" seçeneğine tıklayın.
+2. Ekranda görmek istediğiniz "Total Steps" (Toplam Adım) miktarını belirleyin. Standart bir eğitim için 5,000,000 adım önerilir.
+3. Eğitimi başlatmak için "Start Training" butonuna basın ve modelin kaydedileceği hedef dizini seçin.
+4. Eğitim işlemi arka planda PPO algoritmasını 16 paralel CPU ortamında çalıştıracaktır. Ekrandaki durum çubuğundan ilerlemeyi takip edebilirsiniz.
 
-### Hızlı Test (Kaydedilmiş Model)
-```bash
-cd src
-python main.py --test
-```
+### Simülasyon Kullanımı
+1. Ana menüden "Simulation" seçeneğine tıklayın.
+2. Sağ menüden "Load Model" seçeneği ile eğitmiş olduğunuz bir .zip modelini seçin.
+3. Ekranda uçak ve füze konumlarını sürükleyerek veya açılarını döndürerek başlangıç geometrisini ayarlayın.
+4. "PLAY" butonuna basarak yapay zekanın performansını izleyebilir, veya "PLAY PN" butonuna basarak yapay zekayı geleneksel Oransal Yönlendirme (Proportional Navigation) algoritması ile kıyaslayabilirsiniz.
 
 ---
 
-## 📁 Proje Yapısı
+## Proje Yapısı
 
-```
+```text
 python-RLNN-Fuze-2026/
 ├── src/
-│   ├── main.py              # Giriş noktası (CLI / GUI seçer)
-│   ├── environment.py       # Fizik motoru ve Gym ortamı
-│   ├── train.py             # Eğitim pipeline'ı (PPO)
-│   ├── gui.py               # Grafik arayüzü (Pygame)
-│   └── missile_ppo_model    # Kaydedilmiş model (eğitimden sonra oluşur)
-├── requirements.txt         # Python bağımlılıkları
-├── README.md               # Bu dosya
-└── LICENSE                 # Proje lisansı
+│   ├── main.py              # Proje giriş noktası, arayüzü başlatır
+│   ├── environment.py       # 2D Fizik motoru ve RL (Gym) eğitim ortamı
+│   ├── train.py             # PPO Eğitim pipeline'ı (Arka planda çalışır)
+│   └── gui.py               # Pygame tabanlı grafik kullanıcı arayüzü
+├── models/                  # Eğitilmiş sinir ağı (.zip) modellerinin dizini
+├── requirements.txt         # Proje bağımlılıkları (PyTorch, Stable-Baselines3, vb.)
+├── train_progress.json      # Eğitim sürecinin anlık durumunu arayüze aktarır
+├── README.md                # Bu döküman
+└── LICENSE                  # Proje lisansı
 ```
 
 ---
 
-## ✨ Özellikler
+## Teknik Özellikler
 
-### 🎮 Fizik Motoru
-- **2D Dinamikler**: Füze ve uçağın konumu, hızı, yönü, kuvvetleri (itme, sürtünme)
-- **Rastgele Ortam Üretimi**: Her eğitim adımında rastgele füze/uçak fizik parametreleri
-- **Feasibility Testi**: Ortam oluşturulurken oransal yönlendirme ile test edilir — vurursa eğitime alınır
-- **Adım-Başına Kontrol**: Uçağa sabit dönüş, callable, veya string ifade (örn. `"0.2 * sin(t)"`) geçebilirsiniz
+### Fizik Motoru ve Ortam
+- **2D Dinamik Model:** Füze ve uçağın hız, ivme, itki ve sürtünme kuvvetleri üzerinden gerçekçi takibi. Sadece kinematik değil, kütle-sürtünme denklemleri çözümlenmektedir.
+- **Parametrik Rastgelelik:** Ağın genellenebilirliğini (generalization) artırmak için her iterasyonda füze kütlesi (50-120), hızı (350-550), itkisi, uçak hızı ve ağırlığı randomize edilir. Geometri de her seferinde yeniden kurgulanır.
+- **Kaçış Manevraları:** Hedef uçak eğitim boyunca sabit uçuş, dar dairesel loiter ve yüksek-G harmonik (sinusoidal) kaçış olmak üzere üç farklı davranış kalıbı sergiler.
+- **Fizibilite Filtresi (Feasibility Test):** Eğitim ortamı oluşturulurken geometri, klasik oransal yönlendirme formülü ile matematiksel olarak arka planda test edilir. Sadece füzenin teorik olarak yetişebileceği "fizibl" geometriler yapay zekaya sunulur. Yakalanamaz durumlar `tail_chase_failure` gibi optimizasyonlarla başlangıçta filtrelenir.
 
-### 🤖 Eğitim
-- **PPO (Proximal Policy Optimization)**: Stable-Baselines3 kütüphanesi kullanıyor
-- **Ödül Fonksiyonu**: Mesafe kapatma, zaman cezası, vuruş bonusu
-- **Gözlem Uzayı**: Göreceli konum ve hız (füzenin yerel çerçevesi)
-
-### 🎨 Grafik Arayüzü (GUI)
-- **Ana Menü**: Eğitim, Simülasyon, Hakkında ekranlarına erişim
-- **Eğitim Ekranı**: Eğitim başlat / durdur, canlı durum takibi
-- **Simülasyon Ekranı**: İnteraktif editor — füze/uçak konumları ve açıları ayarlanabilir, özel alanlar eklenebilir
-- **Temel Fizik Görselleştirmesi**: Harita, zoom, pan, grid
-
-### 🔄 Oransal Yönlendirme (Feasibility Testi)
-- Her rastgele ortam bir oransal yönlendirme kontrolörü ile test edilir
-- Eğer füze uçağı yakalayabiliyor → ortam eğitime alınır
-- Eğer yakalayamıyor → yeni rastgele parametre dener (max 6 deneme)
+### Pekiştirmeli Öğrenme (Reinforcement Learning) Mimarisi
+- **Algoritma:** PyTorch tabanlı Stable-Baselines3 kütüphanesi üzerinden `PPO` (Proximal Policy Optimization) kullanılmıştır.
+- **Girdi Uzayı (Observation Space):** Ağ, Kartezyen koordinat sisteminden tamamen izole edilmiştir. Sadece Oransal Yönlendirme mantığı için kritik olan iki parametreyi girdi olarak alır:
+  1. `Görüş Hattı Hızı (LOS Rate)`
+  2. `Yaklaşma Hızı (Closing Velocity - Vc)`
+- **Ödül Fonksiyonu (Reward Function):** İki boyutlu girdi avantajı sayesinde, sistem hedefe yaklaşmayı ödüllendiren (dense reward) ve gecikmeyi cezalandıran basit bir yapıya oturtulmuştur. Ağ, Pure Pursuit (Saf Takip) tuzağına düşmeden Oransal Yönlendirme davranışını kendiliğinden keşfetmektedir.
+- **Paralelizasyon:** Eğitim verimini ve veri akışını maksimize etmek adına `SubprocVecEnv` kullanılarak CPU üzerinde 16 paralel environment aynı anda işlenir.
 
 ---
 
-## 🧪 Geliştirme Notları
-
-### Ortam API
-
-#### Temel Kullanım
-```python
-from src.environment import MissileEnv
-env = MissileEnv(render_mode=None)  # Eğitim modu
-obs, info = env.reset()
-for step in range(1000):
-    action = env.action_space.sample()
-    obs, reward, terminated, truncated, info = env.step(action)
-    if terminated or truncated:
-        obs, info = env.reset()
-env.close()
-```
-
-#### Uçak Kontrolü Ayarlama
-```python
-# Sabit dönüş hızı (0.2 rad/s)
-env.set_plane_control(0.2)
-
-# Sinüsoid kontrol: sin(t) şeklinde daire çizer
-env.set_plane_control("0.5 * sin(t)")
-
-# Python fonksiyonu
-def ctrl(t):
-    return 0.3 * np.sin(2.0 * t)
-env.set_plane_control(ctrl)
-
-# Reset sırasında ayarla
-obs, info = env.reset(options={"plane_control": "0.2"})
-```
-
-### Eğitim Parametreleri
-`train.py` içinde ayarlanabilir:
-- `total_timesteps`: Toplam adım sayısı (varsayılan: 50000)
-- `learning_rate`: Öğrenme hızı (varsayılan: 0.0003)
-
-### Sorun Giderme
-
-**Hata: `FileNotFoundError: missile_ppo_model not found`**
-- Önce `python main.py --train` ile eğitim yapın
-
-**GUI'de şrift sorunları**
-- Pygame varsayılan şriftleri kullanır (`Consolas`). Sisteminizde yoksa `pygame.font.SysFont("arial", ...)` ile değiştirin
-
-**Eğitim çok yavaş**
-- `train.py`'de `total_timesteps` küçültün veya GPU/CUDA kurulumunu kontrol edin
-
----
-
-## 👨‍💻 Katkılar
+## Katkılar
 - **031890087** Ahmet Şeref Gölcük
 - **032490011** Efe Hüner
 - **032490028** Bora Pektaş
 
 ---
 
-## 📄 Lisans
-MIT License (bkz. [LICENSE](LICENSE) dosyası)
+## Lisans
+MIT License (bkz. LICENSE dosyası)

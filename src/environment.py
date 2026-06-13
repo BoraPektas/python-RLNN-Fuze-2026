@@ -1,4 +1,7 @@
-#environment.py fizik motoru ve geri kalan çevreyi içermektedir.
+# environment.py contains the 2D physics engine and the Reinforcement Learning environment.
+# It explicitly provides the AI with pure Proportional Navigation variables
+# (LOS Rate, Closing Velocity) and uses a dense distance-closing reward
+# to encourage natural intercept learning without imitation.
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -35,6 +38,10 @@ class Plane:
         self.vel_y += acc_y * self.dt
 
         self.speed = np.sqrt(self.vel_x**2 + self.vel_y**2)
+        
+        # Aerodynamic stability: align velocity with heading
+        self.vel_x = self.speed * np.cos(self.heading)
+        self.vel_y = self.speed * np.sin(self.heading)
 
         #Position Components
         self.x += self.vel_x * self.dt
@@ -104,7 +111,7 @@ class MissileEnv(gym.Env):
     """
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 60}
 
-    def __init__(self, render_mode=None, truncation_mode="simple"):
+    def __init__(self, render_mode=None, truncation_mode="advanced"):
         super().__init__()
         self.render_mode = render_mode
         self.dt = 1.0 / 60.0  # Simulation time step
@@ -121,8 +128,9 @@ class MissileEnv(gym.Env):
         self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
 
         # 2. OBSERVATION SPACE (What the AI can see)
-        # Example: [relative x, relative y, relative velocity x, relative velocity y, heading cos, heading sin, speed delta]
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(7,), dtype=np.float32)
+        # We explicitly provide the processed kinematic variables necessary for Proportional Navigation:
+        # [los_rate_norm, closing_velocity_norm]
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(2,), dtype=np.float32)
         # Plane control: can be set via `set_plane_control` to a number, callable(t)->rotate, or string expression using `t`.
         self.plane_control_callable = None
         self._plane_control_code = None
@@ -133,10 +141,10 @@ class MissileEnv(gym.Env):
         self.sim_time = 0.0
         
         if self.render_mode is None:
-            # ===== EĞİTİM MODU: Mantıklı Rastgele Ortam =====
-            # Farklı uçak/füze kombinasyonları için fiziksel parametreler
-            # rastgele seçilir. Her örnek, basit bir oransal-seyrüsefer
-            # (proportional guidance) ile test edilir; vuruyorsa kabul edilir.
+            # ===== TRAINING MODE: Smart Random Environment =====
+            # Physics parameters for different plane/missile combinations
+            # are randomly selected. Each sample is tested with a simple
+            # proportional navigation algorithm; if it hits, the setup is accepted.
 
             missile_x = 0.0
             missile_y = 0.0
@@ -146,29 +154,30 @@ class MissileEnv(gym.Env):
             feasible = False
 
             for _ in range(max_attempts):
-                # Geometry: plane at 1800-3500 units around missile (easier for training)
-                distance = np.random.uniform(1800.0, 3500.0)
+                # Geometry: Random spawning distance
+                distance = np.random.uniform(1000.0, 3500.0)
                 angle = np.random.uniform(-np.pi, np.pi)
                 plane_x = missile_x + distance * np.cos(angle)
                 plane_y = missile_y + distance * np.sin(angle)
 
-                # Initial headings with some spread
+                # Target angle relative to missile
                 target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
-                missile_heading = target_angle + np.random.uniform(-np.pi/4, np.pi/4)
+                missile_heading = target_angle + np.random.uniform(-np.pi/2, np.pi/2)
                 missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
-                plane_heading = missile_heading + np.random.uniform(-np.pi/2, np.pi/2)
-                plane_heading = (plane_heading + np.pi) % (2 * np.pi) - np.pi
+                
+                # Plane heading fully random
+                plane_heading = np.random.uniform(-np.pi, np.pi)
 
-                # Random physics parameters (optimized for better learning)
-                missile_speed = float(np.random.uniform(350.0, 480.0))
+                # Random physics parameters (widened bounds for robust generalization)
+                missile_speed = float(np.random.uniform(350.0, 550.0))
                 missile_mass = float(np.random.uniform(50.0, 120.0))
-                missile_thrust = float(np.random.uniform(600.0, 900.0))
+                missile_thrust = float(np.random.uniform(400.0, 1500.0))
                 missile_drag = float(np.random.uniform(0.002, 0.008))
-                missile_max_rotate = float(np.random.uniform(2.5, 4.5))
+                missile_max_rotate = float(np.random.uniform(0.3, 1.2))
 
-                plane_speed = float(np.random.uniform(80.0, 140.0))
+                plane_speed = float(np.random.uniform(80.0, 200.0))
                 plane_mass = float(np.random.uniform(350.0, 650.0))
-                plane_thrust = float(np.random.uniform(100.0, 250.0))
+                plane_thrust = float(np.random.uniform(100.0, 400.0))
                 plane_drag = float(np.random.uniform(0.010, 0.020))
 
                 params = {
@@ -177,7 +186,7 @@ class MissileEnv(gym.Env):
                     "geometry": {"plane_x": plane_x, "plane_y": plane_y, "missile_x": missile_x, "missile_y": missile_y, "missile_heading": missile_heading, "plane_heading": plane_heading}
                 }
 
-                if self._feasibility_test(params, max_time=20.0):
+                if self._feasibility_test(params, max_time=200.0):
                     chosen_params = params
                     feasible = True
                     break
@@ -203,31 +212,50 @@ class MissileEnv(gym.Env):
             plane_y = chosen_params["geometry"]["plane_y"]
             missile_heading = chosen_params["geometry"]["missile_heading"]
             plane_heading = chosen_params["geometry"]["plane_heading"]
-            self.feasible = feasible
             
+            # Apply Random Training Behaviors
+            behavior_type = np.random.choice([1, 2, 3])
+            if behavior_type == 1:
+                # 1. Straight
+                self.set_plane_control(0.0)
+            elif behavior_type == 2:
+                # 2. Loiter (Tight Circle)
+                radius = np.random.uniform(200.0, 800.0)
+                turn_rate = plane_speed / radius
+                if np.random.rand() > 0.5:
+                    turn_rate = -turn_rate
+                self.set_plane_control(turn_rate)
+            elif behavior_type == 3:
+                # 3. Harmonic Wave (High G-force weaving)
+                a = np.random.uniform(0.4, 1.2)
+                b = np.random.uniform(0.5, 2.0)
+                self.set_plane_control(f"{a:.3f}*sin({b:.3f}*t)")
+                
+            self.feasible = feasible
         else:
-            # ===== TEST MODU (render_mode="human"): Yine zorlu ama daha gerçekçi bir başlangıç mesafesi
-            # Uçakların füzeye daha yakın olduğu testler, eğitimle daha uyumlu sonuç verir.
+            # TEST MODE (render_mode="human"): Realistic starting distance
+            # Closer starting distances during testing align better with training results.
             distance = np.random.uniform(1800.0, 3200.0)
             angle = np.random.uniform(-np.pi, np.pi)
             plane_x = distance * np.cos(angle)
             plane_y = distance * np.sin(angle)
-            plane_heading = np.random.uniform(-np.pi, np.pi)
             
             missile_x = 0.0
             missile_y = 0.0
             
-            # Füze uçağa doğru bakmalı (test modunda da)
+            # Missile must face the plane initially in test mode
             target_angle = np.arctan2(plane_y - missile_y, plane_x - missile_x)
             missile_heading = target_angle + np.random.uniform(-np.pi/6, np.pi/6)
             missile_heading = (missile_heading + np.pi) % (2 * np.pi) - np.pi
             
-            # Test modunda agresif füze parametreleri
+            plane_heading = np.random.uniform(-np.pi, np.pi)
+            
+            # Aggressive missile parameters in test mode
             missile_speed = 450.0
             missile_mass = 70.0
             missile_thrust = 800.0
             missile_drag = 0.003
-            missile_max_rotate = 4.0
+            missile_max_rotate = 0.5
             
             plane_speed = 250.0
             plane_mass = 450.0
@@ -294,9 +322,9 @@ class MissileEnv(gym.Env):
 
         raise TypeError("plane_control must be None, number, callable, or string expression")
 
-    def _feasibility_test(self, params, max_time=20.0):
+    def _feasibility_test(self, params, max_time=200.0):
         try:
-            dt = self.dt
+            dt = self.dt  # Use exact simulation dt to ensure perfectly accurate feasibility checks
             missile_p = params["missile"]
             plane_p = params["plane"]
             geo = params["geometry"]
@@ -312,11 +340,26 @@ class MissileEnv(gym.Env):
             for _ in range(steps):
                 dx = plane.x - missile.x
                 dy = plane.y - missile.y
+                distance = np.hypot(dx, dy)
                 target_angle = np.arctan2(dy, dx)
+                
+                # Proportional Navigation
+                rel_vx = plane.vel_x - missile.vel_x
+                rel_vy = plane.vel_y - missile.vel_y
+                los_rate = (dx * rel_vy - dy * rel_vx) / (distance**2 + 1e-6)
+                
+                N = 4.0
+                vc = -(rel_vx * dx + rel_vy * dy) / (distance + 1e-6)
+                if vc < 0:
+                    vc = 1.0 
+                    
+                desired_turn_rate = (N * vc * los_rate) / (missile.speed + 1e-6)
+                
+                # Blend with Pure Pursuit if heading error is large
                 angle_error = (target_angle - missile.heading + np.pi) % (2 * np.pi) - np.pi
+                if abs(angle_error) > np.radians(20):
+                    desired_turn_rate += angle_error * 1.5
 
-                K = 2.0
-                desired_turn_rate = angle_error * K
                 desired_turn_rate = np.clip(desired_turn_rate, -missile.max_rotate, missile.max_rotate)
                 action = np.array([desired_turn_rate / missile.max_rotate], dtype=np.float32)
 
@@ -324,12 +367,22 @@ class MissileEnv(gym.Env):
                 plane.update(rotate=0.0)
 
                 distance = np.hypot(plane.x - missile.x, plane.y - missile.y)
-                if distance < 20.0:
+                if distance < 40.0:
                     return True
 
-                # OPTİMİZASYON: Feasibility adımında da sabit 3000 engeli genişletildi
+                # OPTIMIZATION: Feasibility step uses expanded 3000 boundary
                 if distance > max(4500.0, initial_distance * 1.3):
                     return False
+                    
+                # Dynamic Tail Chase Failure Condition
+                # If they are going about the same heading, and the missile is no longer significantly faster
+                heading_error = (plane.heading - missile.heading + np.pi) % (2 * np.pi) - np.pi
+                if abs(heading_error) < np.radians(15):
+                    if missile.speed - plane.speed < 5.0:
+                        accel = (missile.thrust - missile.drag * (missile.speed**2)) / missile.mass
+                        future_speed = missile.speed + accel * 4.0
+                        if future_speed - plane.speed < 5.0:
+                            return False
 
             return False
         except Exception:
@@ -374,23 +427,37 @@ class MissileEnv(gym.Env):
         distance = np.sqrt(dist_x**2 + dist_y**2)
 
         # 3. Check Termination / Truncation
-        terminated = bool(distance < 20.0)      # Hit Radius
+        terminated = bool(distance < 40.0)      # Hit Radius
         
-        # Miss Detection: Calculate missile distance from starting point
-        missile_dist_from_start_x = self.missile.x - self.missile_start_x
-        missile_dist_from_start_y = self.missile.y - self.missile_start_y
-        missile_dist_from_start = np.sqrt(missile_dist_from_start_x**2 + missile_dist_from_start_y**2)
+        # Miss Detection: Calculate if missile has flown past the plane
+        missile_dist_from_start = np.hypot(self.missile.x - self.missile_start_x, self.missile.y - self.missile_start_y)
+        plane_dist_from_missile_start = np.hypot(self.plane.x - self.missile_start_x, self.plane.y - self.missile_start_y)
+        miss_condition = missile_dist_from_start > (1.2 * plane_dist_from_missile_start)
         
-        # OPTİMİZASYON: Maksimum mesafe sınırını dinamik yaptık.
-        # Uçak 3500'de doğsa bile artık oyun anında kopmayacak, esnek bir tavan olacak.
+        # OPTIMIZATION: Dynamic max distance limit to allow flexible boundaries
         max_distance_limit = max(4800.0, self.initial_plane_missile_distance * 1.4)
 
         if self.truncation_mode == "advanced":
-            miss_condition = missile_dist_from_start > 2.2 * self.initial_plane_missile_distance
             boundary_condition = distance > max_distance_limit
-            truncated = bool(miss_condition or boundary_condition)
+            
+            # Dynamic Tail Chase Failure Condition
+            heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
+            
+            accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
+            future_speed = self.missile.speed + accel * 4.0
+            
+            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
+            
+            truncated = bool(miss_condition or boundary_condition or tail_chase_failure)
         else:
-            truncated = bool(distance > max_distance_limit)
+            heading_error = (self.plane.heading - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
+            
+            accel = (self.missile.thrust - self.missile.drag * (self.missile.speed**2)) / self.missile.mass
+            future_speed = self.missile.speed + accel * 4.0
+            
+            tail_chase_failure = abs(heading_error) < np.radians(15) and (self.missile.speed - self.plane.speed < 5.0) and (future_speed - self.plane.speed < 5.0)
+            
+            truncated = bool(distance > max_distance_limit or miss_condition or tail_chase_failure)
 
         # 4. Centralized Reward Call
         reward = self._compute_reward(distance, terminated, truncated, action)
@@ -414,67 +481,43 @@ class MissileEnv(gym.Env):
         local_x = dx * np.cos(theta) + dy * np.sin(theta)
         local_y = -dx * np.sin(theta) + dy * np.cos(theta)
         
-        dv_x = self.plane.vel_x - self.missile.vel_x
-        dv_y = self.plane.vel_y - self.missile.vel_y
+        dvx = self.plane.vel_x - self.missile.vel_x
+        dvy = self.plane.vel_y - self.missile.vel_y
         
-        local_dv_x = dv_x * np.cos(theta) + dv_y * np.sin(theta)
-        local_dv_y = -dv_x * np.sin(theta) + dv_y * np.cos(theta)
+        distance = np.hypot(dx, dy)
+        
+        distance_sq = distance**2
+        los_rate = (dx * dvy - dy * dvx) / (distance_sq + 1e-6)
+        vc = -(dx * dvx + dy * dvy) / (distance + 1e-6)
 
-        target_angle = np.arctan2(dy, dx)
-        heading_error = (target_angle - theta + np.pi) % (2 * np.pi) - np.pi
-        heading_cos = np.cos(heading_error)
-        heading_sin = np.sin(heading_error)
-        speed_delta = self.plane.speed - self.missile.speed
-
-        # Yeni genişletilmiş dinamik sınıra uyumlu normalizasyon tavanı
-        max_distance = 45000.0
-        max_rel_speed = 500.0
-
-        local_x = np.clip(local_x / max_distance, -1.0, 1.0)
-        local_y = np.clip(local_y / max_distance, -1.0, 1.0)
-        local_dv_x = np.clip(local_dv_x / max_rel_speed, -1.0, 1.0)
-        local_dv_y = np.clip(local_dv_y / max_rel_speed, -1.0, 1.0)
-        speed_delta = np.clip(speed_delta / max_rel_speed, -1.0, 1.0)
+        # TRUE MISSILE OBSERVATIONS (Processed variables for Proportional Navigation)
+        # 1. Line of Sight Rate (LOS Rate)
+        los_rate_norm = np.clip(los_rate, -1.0, 1.0)
+        # 2. Closing Velocity (Vc)
+        vc_norm = np.clip(vc / 500.0, -1.0, 1.0)
 
         obs = np.array([
-            local_x,          
-            local_y,          
-            local_dv_x,       
-            local_dv_y,       
-            heading_cos,      
-            heading_sin,      
-            speed_delta       
+            los_rate_norm,       
+            vc_norm
         ], dtype=np.float32)
         
         return obs
 
     def _compute_reward(self, distance, terminated, truncated, action=None):
         if terminated:
-            return 250.0  # Başarı ödülü artırıldı
+            return 1000.0  # Massive Success reward
         if truncated:
-            return -100.0  # Haksız sınır cezası yumuşatıldı (-150'den -100'e)
+            return -500.0  # Massive Boundary/Timeout penalty
 
+        if action is None:
+            return 0.0
+
+        # Proper Training Evaluation
+        # Dense reward for getting closer to the target
         progress = self.previous_distance - distance
-        progress = np.clip(progress, -50.0, 50.0)
+        getting_close_reward = progress * 0.1
         
-        escape_penalty = 0.0
-        if progress < 0:
-            escape_penalty = -1.0 * abs(progress)
+        # Small time penalty to encourage fast interceptions
+        time_penalty = -0.1
         
-        # OPTİMİZASYON: Uzaklık cezası düşürüldü (0.0018 -> 0.0005).
-        # Böylece uzakta doğan füze pes etmek yerine hedefe kilitlenmeye devam eder.
-        dist_penalty = 0.0005 * distance
-
-        dx = self.plane.x - self.missile.x
-        dy = self.plane.y - self.missile.y
-        target_angle = np.arctan2(dy, dx)
-        heading_error = (target_angle - self.missile.heading + np.pi) % (2 * np.pi) - np.pi
-        heading_bonus = 0.4 * np.cos(heading_error)
-
-        # OPTİMİZASYON: Füzenin aşırı pürüzlü ve yalpalamalı (jitter) dönmesini engellemek için aksiyon cezası
-        action_penalty = 0.0
-        if action is not None:
-            action_penalty = -0.05 * np.sum(np.square(action))
-
-        reward = 1.0 * progress - dist_penalty + heading_bonus + escape_penalty + action_penalty - 0.01
-        return float(reward)
+        return getting_close_reward + time_penalty
